@@ -15,76 +15,86 @@ MAX_PACKET = 1024
 class Server:
     def __init__(self):
         self.server = None
-        self.clients = None
-        self.nicknames = None
-        self.rooms = None
+        self.clients = {}
+        self.online_users = []
 
-    def broadcast(self, message, room, name):
+    def send_private_message(self, message, recipient, sender):
         """
-        sends the given message to all clients in a given room
-        :param message:
-        :param room:
-        :param name:
-        :return:
+        sends a private message to a specific user
+        :param message: message content
+        :param recipient: recipient's username
+        :param sender: sender's username
+        :return: None
         """
-        names = []
-        for client in self.clients:
-            index = self.clients.index(client)
-            if self.rooms[index] == room:
-                client.send(create_msg(message, room, name).encode())
-                names.append(self.nicknames[index])
-        for client in self.clients:
-            index = self.clients.index(client)
-            if self.rooms[index] == room:
-                client.send(create_msg("name: " + ", ".join(names), "0", "server").encode())
+        if sender in self.clients:
+            if recipient in self.clients:
+                # Send message to recipient
+                self.clients[recipient].send(create_msg(message, recipient, sender).encode())
+                # Send confirmation back to sender
+                self.clients[sender].send(create_msg(message, recipient, sender).encode())
+            else:
+                # Notify sender that recipient is not available
+                self.clients[sender].send(create_msg("User is not available", sender, "server").encode())
 
-    def handle(self, client):
+    def broadcast_online_users(self):
+        """
+        broadcasts the list of online users to all clients
+        """
+        for username in self.clients:
+            # Create a list of online users excluding the current user
+            other_users = [user for user in self.online_users if user != username]
+            online_users = ", ".join(other_users) if other_users else "No other users online"
+            self.clients[username].send(create_msg(f"online_users:{online_users}", username, "server").encode())
+
+    def handle(self, client, username):
         """
         handles the client
-        :param client:
-        :return:
+        :param client: client socket
+        :param username: client's username
+        :return: None
         """
         while True:
             try:
-                message, room, name = get_msg(client)
+                message, recipient, sender = get_msg(client)
                 if message == "disconnect":
-                    index = self.clients.index(client)
-                    self.clients.remove(client)
+                    self.clients.pop(username)
+                    self.online_users.remove(username)
                     client.close()
-                    self.broadcast(f"{self.nicknames.pop(index)} left the chat", self.rooms.pop(index),
-                                   "server")
+                    self.broadcast_online_users()
                 else:
-                    self.broadcast(message, room, name)
+                    self.send_private_message(message, recipient, sender)
             except socket.error as err:
                 print(err)
+                if username in self.clients:
+                    self.clients.pop(username)
+                    self.online_users.remove(username)
+                    self.broadcast_online_users()
                 break
 
-    def recieve(self):
+    def receive(self):
         """
         connects to a client then opens a thread to handles them
-        :return:
+        :return: None
         """
         while True:
             client, address = self.server.accept()
             print(f"connected with {str(address)}")
 
-            message, room, name = get_msg(client)
+            message, recipient, username = get_msg(client)
 
-            if message == "connect":
-                self.clients.append(client)
-                self.rooms.append(room)
-                self.nicknames.append(name)
+            if message == "connect" and username not in self.clients:
+                self.clients[username] = client
+                self.online_users.append(username)
 
-                print("connected to a client")
+                print(f"connected client: {username}")
 
-                client.send(create_msg('Connected to server', "0", "server").encode())
+                client.send(create_msg('Connected to server', username, "server").encode())
+                self.broadcast_online_users()
 
-                self.broadcast(name + " has entered the chat", room, "server")
-
-                thread = threading.Thread(target=self.handle, args=(client,))
+                thread = threading.Thread(target=self.handle, args=(client, username))
                 thread.start()
             else:
-                client.send(create_msg('issue connecting', "0", "server").encode())
+                client.send(create_msg('issue connecting', "server", "server").encode())
                 client.close()
 
     def main(self):
@@ -92,11 +102,7 @@ class Server:
         self.server.bind((IP, PORT))
         self.server.listen()
 
-        self.clients = []
-        self.nicknames = []
-        self.rooms = []
-
-        self.recieve()
+        self.receive()
 
 
 if __name__ == '__main__':
