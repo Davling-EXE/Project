@@ -5,6 +5,7 @@ from Protocol import *
 from tkinter import messagebox
 import threading
 from tkinter.scrolledtext import ScrolledText
+from database import Database
 
 """
 constants
@@ -24,9 +25,11 @@ class Client:
         self.user_box = None
         self.top = None
         self.name_input = None
+        self.pass_input = None
         self.username = ""
         self.chat_windows = {}
         self.main_window = None
+        self.db = Database()
 
     def get_window_position(self, width, height):
         """Calculate window position to center it on screen"""
@@ -36,17 +39,30 @@ class Client:
         y = (screen_height - height) // 2
         return f"{width}x{height}+{x}+{y}"
 
-    def connect(self):
+    def connect(self, is_login=True):
         """
-        connects to the server
+        connects to the server with authentication
+        :param is_login: True if logging in, False if registering
         :return:
         """
         try:
-            self.username = self.name_input.get()
-            if not self.username:
-                messagebox.showerror("Error", "Please enter a username")
+            username = self.name_input.get()
+            password = self.pass_input.get()
+            
+            if not username or not password:
+                messagebox.showerror("Error", "Please enter both username and password")
                 return
 
+            if is_login:
+                success, message = self.db.authenticate_user(username, password)
+            else:
+                success, message = self.db.register_user(username, password)
+
+            if not success:
+                messagebox.showerror("Authentication Error", message)
+                return
+
+            self.username = username
             self.server = socket.socket()
             self.server.connect((SERVER_IP, PORT))
             self.server.send(create_msg("connect", self.username, "server", "").encode())
@@ -74,25 +90,38 @@ class Client:
                 
                 if msg_type == "error":
                     messagebox.showerror("Error", content)
-                    self.top.destroy()
+                    if hasattr(self, 'top') and self.top:
+                        self.top.destroy()
                     break
                 elif msg_type == "user_list":
-                    users = content.split(",")
-                    self.user_box.delete(0, END)
-                    for user in users:
-                        if user != self.username:
-                            self.user_box.insert(END, user)
+                    try:
+                        if self.user_box and self.user_box.winfo_exists():
+                            users = content.split(",")
+                            self.user_box.delete(0, END)
+                            for user in users:
+                                if user != self.username:
+                                    self.user_box.insert(END, user)
+                    except TclError:
+                        # Widget was destroyed, ignore the error
+                        pass
                 elif msg_type == "message":
-                    if sender not in self.chat_windows:
-                        self.open_chat_window(sender)
-                    self.chat_windows[sender].add_message(f"{sender}: {content}\n")
+                    try:
+                        if sender not in self.chat_windows:
+                            self.open_chat_window(sender)
+                        if sender in self.chat_windows and self.chat_windows[sender].window.winfo_exists():
+                            self.chat_windows[sender].add_message(f"{sender}: {content}\n")
+                    except TclError:
+                        # Chat window was destroyed, remove it from chat_windows
+                        if sender in self.chat_windows:
+                            del self.chat_windows[sender]
                 elif msg_type == "connect" and sender == "server":
                     messagebox.showinfo("Server Message", content)
 
             except socket.error as err:
                 messagebox.showerror("Error", str(err))
                 self.server.close()
-                self.top.destroy()
+                if hasattr(self, 'top') and self.top:
+                    self.top.destroy()
                 break
 
     def write(self, recipient, message):
@@ -109,13 +138,31 @@ class Client:
 
     def exit_chat(self):
         """
-        leaves the chat
-        :return:
+        leaves the chat and terminates the program
         """
-        self.server.send(create_msg("disconnect", self.username, "server", "").encode())
-        for window in self.chat_windows.values():
-            window.window.destroy()
-        self.main_window.destroy()
+        try:
+            # Send disconnect message to server
+            if self.server:
+                self.server.send(create_msg("disconnect", self.username, "server", "").encode())
+                self.server.close()
+
+            # Close all chat windows
+            for window in self.chat_windows.values():
+                if window.window.winfo_exists():
+                    window.window.destroy()
+            
+            # Close main window if it exists
+            if self.main_window and self.main_window.winfo_exists():
+                self.main_window.destroy()
+            
+            # Close root window and exit program
+            ROOT.quit()
+            ROOT.destroy()
+            import sys
+            sys.exit(0)
+        except Exception as e:
+            messagebox.showerror("Error", f"Error while closing: {str(e)}")
+            sys.exit(1)
 
     class ChatWindow:
         def __init__(self, parent, username, recipient, write_callback):
@@ -202,23 +249,36 @@ class Client:
         receive_thread.start()
 
     def main(self):
-        # Create login window
-        ROOT.geometry(self.get_window_position(300, 150))
-        ROOT.minsize(250, 150)
+        # Create login/register window
+        ROOT.geometry(self.get_window_position(300, 250))
+        ROOT.minsize(250, 250)
         frame = Frame(ROOT, padx=20, pady=20)
         frame.pack(expand=True, fill=BOTH)
 
-        instruction_label = Label(frame, text="Enter your username to join the chat",
-                               font=('Segoe UI', '11'))
+        instruction_label = Label(frame, text="Welcome to Chat",
+                               font=('Segoe UI', '11', 'bold'))
         instruction_label.pack(pady=10)
 
+        Label(frame, text="Username:", font=('Segoe UI', '10')).pack(anchor=W)
         self.name_input = Entry(frame, font=('Segoe UI', '11'))
-        self.name_input.pack(fill=X, pady=10)
+        self.name_input.pack(fill=X, pady=(0, 10))
 
-        connect_button = Button(frame, text="Login", command=self.connect,
-                             font=('Segoe UI', '11'), bg='#4CAF50', fg='white',
-                             width=12)
-        connect_button.pack(pady=10)
+        Label(frame, text="Password:", font=('Segoe UI', '10')).pack(anchor=W)
+        self.pass_input = Entry(frame, font=('Segoe UI', '11'), show='*')
+        self.pass_input.pack(fill=X, pady=(0, 15))
+
+        button_frame = Frame(frame)
+        button_frame.pack(fill=X)
+
+        login_button = Button(button_frame, text="Login", command=lambda: self.connect(True),
+                           font=('Segoe UI', '11'), bg='#4CAF50', fg='white',
+                           width=12)
+        login_button.pack(side=LEFT, padx=5)
+
+        register_button = Button(button_frame, text="Register", command=lambda: self.connect(False),
+                              font=('Segoe UI', '11'), bg='#2196F3', fg='white',
+                              width=12)
+        register_button.pack(side=RIGHT, padx=5)
 
         ROOT.mainloop()
 
