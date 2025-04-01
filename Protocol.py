@@ -1,55 +1,27 @@
-"""
-author - nadav cohen
-date   - 18/04/24
-protocol for communication
-"""
+"""Protocol for private messaging communication"""
 
-"""
-constants
-"""
-MAX_PACKET = 1024
-
-
-def create_msg(data, recipient, sender):
+def create_msg(msg_type, sender, recipient, content):
     """
-    creates a message following the protocol
-    :param data: message content
-    :param recipient: recipient's username
-    :param sender: sender's username
-    :return: formatted message string
+    Creates a message following the protocol format: <type>|<sender>|<recipient>|<content>
+    :param msg_type: Message type (connect, disconnect, message, user_list)
+    :param sender: Sender's username
+    :param recipient: Recipient's username (or 'all' for broadcast)
+    :param content: Message content
+    :return: Formatted message string
     """
-    length_message = str(len(data))
-    zfill_length_message = length_message.zfill(4)
-    length_recipient = str(len(recipient))
-    zfill_length_recipient = length_recipient.zfill(4)
-    length_sender = str(len(sender))
-    zfill_length_sender = length_sender.zfill(4)
-    message = str(zfill_length_message) + data + str(zfill_length_recipient) + recipient + str(zfill_length_sender) + sender
-    return message
+    return f"{msg_type}|{sender}|{recipient}|{content}"
 
-
-def get_msg(my_socket):
+def parse_msg(my_socket):
     """
-    Extract message from protocol
-    :param my_socket: socket connection
-    :return: tuple of (message, recipient, sender)
+    Extract message from protocol and parse its components
+    :param my_socket: Socket to receive data from
+    :return: Tuple of (message_type, sender, recipient, content)
     """
-    len_word = my_socket.recv(4).decode()
-    if len_word.isnumeric():
-        message = my_socket.recv(int(len_word)).decode()
-        len_recipient = my_socket.recv(4).decode()
-        if len_recipient.isnumeric():
-            recipient = my_socket.recv(int(len_recipient)).decode()
-            len_sender = my_socket.recv(4).decode()
-            if len_sender.isnumeric():
-                sender = my_socket.recv(int(len_sender)).decode()
-                return message, recipient, sender
-    return "Error", "server", "server"
-
-
-def main():
-    print("hello")
-
-
-if __name__ == '__main__':
-    main()
+    try:
+        data = my_socket.recv(1024).decode()
+        if not data:
+            return 'disconnect', '', '', ''
+        msg_type, sender, recipient, content = data.split('|')
+        return msg_type, sender, recipient, content
+    except:
+        return 'error', '', '', 'Invalid message format'

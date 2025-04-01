@@ -16,92 +16,82 @@ class Server:
     def __init__(self):
         self.server = None
         self.clients = {}
-        self.online_users = []
+        self.user_sockets = {}
 
-    def send_private_message(self, message, recipient, sender):
+    def send_user_list(self):
         """
-        sends a private message to a specific user
-        :param message: message content
-        :param recipient: recipient's username
-        :param sender: sender's username
-        :return: None
+        Sends the list of online users to all connected clients
         """
-        if sender in self.clients:
-            if recipient in self.clients:
-                # Send message to recipient
-                self.clients[recipient].send(create_msg(message, recipient, sender).encode())
-                # Send confirmation back to sender
-                self.clients[sender].send(create_msg(message, recipient, sender).encode())
-            else:
-                # Notify sender that recipient is not available
-                self.clients[sender].send(create_msg("User is not available", sender, "server").encode())
+        online_users = list(self.clients.keys())
+        for username, client in self.clients.items():
+            client.send(create_msg("user_list", "server", username, ",".join(online_users)).encode())
 
-    def broadcast_online_users(self):
+    def send_private_message(self, msg_type, sender, recipient, content):
         """
-        broadcasts the list of online users to all clients
+        Sends a private message to a specific user
         """
-        for username in self.clients:
-            # Create a list of online users excluding the current user
-            other_users = [user for user in self.online_users if user != username]
-            online_users = ", ".join(other_users) if other_users else "No other users online"
-            self.clients[username].send(create_msg(f"online_users:{online_users}", username, "server").encode())
+        if recipient in self.clients:
+            self.clients[recipient].send(create_msg(msg_type, sender, recipient, content).encode())
 
     def handle(self, client, username):
         """
-        handles the client
-        :param client: client socket
-        :param username: client's username
-        :return: None
+        Handles messages from a client
+        :param client: Client socket
+        :param username: Username of the client
         """
         while True:
             try:
-                message, recipient, sender = get_msg(client)
-                if message == "disconnect":
-                    self.clients.pop(username)
-                    self.online_users.remove(username)
-                    client.close()
-                    self.broadcast_online_users()
-                else:
-                    self.send_private_message(message, recipient, sender)
+                msg_type, sender, recipient, content = parse_msg(client)
+                
+                if msg_type == "disconnect" or msg_type == "error":
+                    if username in self.clients:
+                        del self.clients[username]
+                        client.close()
+                        self.send_user_list()
+                    break
+                elif msg_type == "message":
+                    self.send_private_message(msg_type, sender, recipient, content)
             except socket.error as err:
-                print(err)
+                print(f"Error handling client {username}: {err}")
                 if username in self.clients:
-                    self.clients.pop(username)
-                    self.online_users.remove(username)
-                    self.broadcast_online_users()
+                    del self.clients[username]
+                    self.send_user_list()
                 break
 
     def receive(self):
         """
-        connects to a client then opens a thread to handles them
-        :return: None
+        Accepts new client connections and initializes their sessions
         """
         while True:
             client, address = self.server.accept()
-            print(f"connected with {str(address)}")
+            print(f"New connection from {str(address)}")
 
-            message, recipient, username = get_msg(client)
+            msg_type, sender, recipient, content = parse_msg(client)
 
-            if message == "connect" and username not in self.clients:
-                self.clients[username] = client
-                self.online_users.append(username)
-
-                print(f"connected client: {username}")
-
-                client.send(create_msg('Connected to server', username, "server").encode())
-                self.broadcast_online_users()
-
-                thread = threading.Thread(target=self.handle, args=(client, username))
-                thread.start()
+            if msg_type == "connect":
+                username = sender
+                if username not in self.clients:
+                    self.clients[username] = client
+                    print(f"User {username} connected")
+                    
+                    client.send(create_msg("connect", "server", username, "Connected to server").encode())
+                    self.send_user_list()
+                    
+                    thread = threading.Thread(target=self.handle, args=(client, username))
+                    thread.start()
+                else:
+                    client.send(create_msg("error", "server", username, "Username already taken").encode())
+                    client.close()
             else:
-                client.send(create_msg('issue connecting', "server", "server").encode())
+                client.send(create_msg("error", "server", "", "Invalid connection request").encode())
                 client.close()
 
     def main(self):
         self.server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.server.bind((IP, PORT))
         self.server.listen()
-
+        print(f"Server started on {IP}:{PORT}")
+        
         self.receive()
 
 

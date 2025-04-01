@@ -14,7 +14,7 @@ SERVER_IP = "127.0.0.1"
 PORT = 8820
 MAX_PACKAGE = 1024
 ROOT = Tk()
-ROOT.title("User Identification")
+ROOT.title("Chat Login")
 
 
 class Client:
@@ -26,8 +26,8 @@ class Client:
         self.send_input = None
         self.top = None
         self.name_input = None
-        self.selected_user = None
-        self.online_users = []
+        self.selected_user = StringVar()
+        self.username = ""
 
     def connect(self):
         """
@@ -35,17 +35,26 @@ class Client:
         :return:
         """
         try:
+            self.username = self.name_input.get()
+            if not self.username:
+                messagebox.showerror("Error", "Please enter a username")
+                return
+
             self.server = socket.socket()
             self.server.connect((SERVER_IP, PORT))
+            self.server.send(create_msg("connect", self.username, "server", "").encode())
 
-            self.server.send(create_msg("connect", "server", self.name_input.get()).encode())
+            msg_type, sender, recipient, content = parse_msg(self.server)
+            if msg_type == "error":
+                messagebox.showerror("Connection Error", content)
+                self.server.close()
+                return
 
-            messagebox.showinfo("Connected successfully", "Connected as " + self.name_input.get())
-
+            messagebox.showinfo("Connected successfully", f"Connected as {self.username}")
             self.open_chat()
 
         except socket.error as err:
-            messagebox.showerror("an error occurred while trying to connect to the server", err)
+            messagebox.showerror("Connection Error", str(err))
 
     def receive(self):
         """
@@ -54,21 +63,27 @@ class Client:
         """
         while True:
             try:
-                message, recipient, sender = get_msg(self.server)
-                if message == "issue connecting" and recipient == "server" and sender == "server":
+                msg_type, sender, recipient, content = parse_msg(self.server)
+                
+                if msg_type == "error":
+                    messagebox.showerror("Error", content)
                     self.top.destroy()
-                elif message.startswith("online_users:") and sender == "server":
-                    self.online_users = message[12:].split(", ")
+                    break
+                elif msg_type == "user_list":
+                    users = content.split(",")
                     self.user_box.delete(0, END)
-                    for user in self.online_users:
-                        if user != self.name_input.get():
+                    for user in users:
+                        if user != self.username:
                             self.user_box.insert(END, user)
-                else:
-                    self.chat_box.insert(END, f"{sender} : {message}\n")
+                elif msg_type == "message":
+                    self.chat_box.insert(END, f"{sender}: {content}\n")
+                    self.chat_box.see(END)
+                elif msg_type == "connect" and sender == "server":
+                    self.chat_box.insert(END, f"Server: {content}\n")
                     self.chat_box.see(END)
 
             except socket.error as err:
-                messagebox.showerror("an error occurred", err)
+                messagebox.showerror("Error", str(err))
                 self.server.close()
                 self.top.destroy()
                 break
@@ -78,30 +93,23 @@ class Client:
         sends message to server
         :return:
         """
-        if self.selected_user:
-            self.server.send(create_msg(self.send_input.get(), self.selected_user, self.name_input.get()).encode())
+        recipient = self.user_box.get(ACTIVE)
+        message = self.send_input.get()
+        if recipient and message:
+            self.server.send(create_msg("message", self.username, recipient, message).encode())
+            self.chat_box.insert(END, f"Me to {recipient}: {message}\n")
+            self.chat_box.see(END)
             self.send_input.delete(0, END)
         else:
-            messagebox.showwarning("No recipient selected", "Please select a user to send message to")
+            messagebox.showwarning("Warning", "Please select a recipient and enter a message")
 
     def exit_chat(self):
         """
         leaves the chat
         :return:
         """
-        self.server.send(create_msg("disconnect", "server", self.name_input.get()).encode())
+        self.server.send(create_msg("disconnect", self.username, "server", "").encode())
         self.top.destroy()
-
-    def select_user(self, event):
-        """
-        handles user selection from the list
-        :param event: event object
-        :return: None
-        """
-        selection = self.user_box.curselection()
-        if selection:
-            self.selected_user = self.user_box.get(selection[0])
-            self.top.title(f"Chat with {self.selected_user}")
 
     def open_chat(self):
         """
@@ -109,24 +117,36 @@ class Client:
         :return:
         """
         self.top = Toplevel()
+        self.top.title(f"Chat - {self.username}")
 
-        self.top.title(f"Chat - {self.name_input.get()}")
-        user_list_label = Label(self.top, text="Online Users", font=('Segoe UI', '12', 'bold'))
-        self.user_box = Listbox(self.top, width=20, height=25, bd=8)
-        self.user_box.bind('<<ListboxSelect>>', self.select_user)
-        self.chat_box = ScrolledText(self.top, width=80, height=25, state=NORMAL, bd=8)
-        self.send_input = Entry(self.top, width=80, bd=8)
-        send_button = Button(self.top, width=10, height=1, bd=8, text="Send", font=('Segoe UI', '18'),
-                             command=self.write)
-        exit_button = Button(self.top, width=15, height=1, bd=8, command=self.exit_chat, text="Exit Chat",
-                             font=('Segoe UI', '18'))
+        # Left panel for user list
+        left_frame = Frame(self.top)
+        left_frame.grid(row=0, column=0, padx=10, pady=10, sticky="nsew")
+        Label(left_frame, text="Online Users", font=('Segoe UI', '12', 'bold')).pack(pady=5)
+        self.user_box = Listbox(left_frame, width=20, height=25, bd=8)
+        self.user_box.pack(fill=BOTH, expand=True)
 
-        user_list_label.grid(row=0, column=0)
-        self.user_box.grid(row=1, column=0)
-        self.chat_box.grid(row=0, column=1, rowspan=2, columnspan=2)
-        self.send_input.grid(row=2, column=2, stick=W)
-        send_button.grid(row=2, column=1, stick=W)
-        exit_button.grid(row=2, column=0, stick=W)
+        # Right panel for chat
+        right_frame = Frame(self.top)
+        right_frame.grid(row=0, column=1, padx=10, pady=10, sticky="nsew")
+        self.chat_box = ScrolledText(right_frame, width=80, height=25, state=NORMAL, bd=8)
+        self.chat_box.pack(fill=BOTH, expand=True)
+
+        # Bottom panel for input and buttons
+        bottom_frame = Frame(self.top)
+        bottom_frame.grid(row=1, column=0, columnspan=2, padx=10, pady=10, sticky="ew")
+        self.send_input = Entry(bottom_frame, width=80, bd=8)
+        self.send_input.pack(side=LEFT, expand=True, fill=X, padx=5)
+        send_button = Button(bottom_frame, text="Send", font=('Segoe UI', '12'),
+                          command=self.write, width=10)
+        send_button.pack(side=LEFT, padx=5)
+        exit_button = Button(bottom_frame, text="Exit Chat", font=('Segoe UI', '12'),
+                          command=self.exit_chat, width=10)
+        exit_button.pack(side=LEFT, padx=5)
+
+        # Configure grid weights
+        self.top.grid_columnconfigure(1, weight=1)
+        self.top.grid_rowconfigure(0, weight=1)
 
         receive_thread = threading.Thread(target=self.receive)
         receive_thread.start()
@@ -134,13 +154,22 @@ class Client:
         self.top.mainloop()
 
     def main(self):
-        instruction_label = Label(ROOT, text="Please enter your name to join the chat", font=('Segoe UI', '12'))
-        self.name_input = Entry(ROOT, width=30)
-        connect_button = Button(ROOT, text="Connect", command=self.connect, width=20)
+        # Create login window
+        ROOT.geometry("300x150")
+        frame = Frame(ROOT, padx=20, pady=20)
+        frame.pack(expand=True, fill=BOTH)
 
-        instruction_label.grid(row=0, column=0, pady=10)
-        self.name_input.grid(row=1, column=0, pady=5)
-        connect_button.grid(row=2, column=0, pady=10)
+        instruction_label = Label(frame, text="Enter your username to join the chat",
+                               font=('Segoe UI', '12'))
+        instruction_label.pack(pady=10)
+
+        self.name_input = Entry(frame, font=('Segoe UI', '12'))
+        self.name_input.pack(fill=X, pady=10)
+
+        connect_button = Button(frame, text="Login", command=self.connect,
+                             font=('Segoe UI', '12'), bg='#4CAF50', fg='white',
+                             width=15, relief=RAISED)
+        connect_button.pack(pady=10)
 
         ROOT.mainloop()
 
