@@ -28,6 +28,14 @@ class Client:
         self.chat_windows = {}
         self.main_window = None
 
+    def get_window_position(self, width, height):
+        """Calculate window position to center it on screen"""
+        screen_width = ROOT.winfo_screenwidth()
+        screen_height = ROOT.winfo_screenheight()
+        x = (screen_width - width) // 2
+        y = (screen_height - height) // 2
+        return f"{width}x{height}+{x}+{y}"
+
     def connect(self):
         """
         connects to the server
@@ -114,32 +122,37 @@ class Client:
             self.parent = parent
             self.window = Toplevel()
             self.window.title(f"Chat with {recipient}")
+            self.window.geometry(parent.get_window_position(500, 600))
+            self.window.minsize(400, 500)
             self.recipient = recipient
             self.write_callback = write_callback
 
+            # Configure window close protocol
+            self.window.protocol("WM_DELETE_WINDOW", self.exit_chat)
+
             # Top frame for buttons
             top_frame = Frame(self.window)
-            top_frame.pack(fill=X, padx=10, pady=5)
+            top_frame.pack(fill=X, padx=15, pady=10)
             
-            exit_button = Button(top_frame, text="Exit Chat", font=('Segoe UI', '10'),
-                                command=self.exit_chat, width=8)
+            exit_button = Button(top_frame, text="Close Chat", font=('Segoe UI', '10'),
+                                command=self.exit_chat)
             exit_button.pack(side=RIGHT)
 
             # Chat display area
-            self.chat_box = ScrolledText(self.window, width=60, height=20, state=NORMAL, bd=8)
-            self.chat_box.pack(fill=BOTH, expand=True, padx=10, pady=5)
+            self.chat_box = ScrolledText(self.window, font=('Segoe UI', '10'), bd=2)
+            self.chat_box.pack(fill=BOTH, expand=True, padx=15, pady=10)
 
             # Input area
             bottom_frame = Frame(self.window)
-            bottom_frame.pack(fill=X, padx=10, pady=5)
+            bottom_frame.pack(fill=X, padx=15, pady=(0, 15))
             
-            self.send_input = Entry(bottom_frame, width=50, bd=8)
-            self.send_input.pack(side=LEFT, expand=True, fill=X, padx=5)
+            self.send_input = Entry(bottom_frame, font=('Segoe UI', '10'), bd=2)
+            self.send_input.pack(side=LEFT, expand=True, fill=X, padx=(0, 10))
             self.send_input.bind('<Return>', self.send_message)
             
-            send_button = Button(bottom_frame, text="Send", font=('Segoe UI', '12'),
-                                command=self.send_message, width=10)
-            send_button.pack(side=LEFT, padx=5)
+            send_button = Button(bottom_frame, text="Send", font=('Segoe UI', '10'),
+                                command=self.send_message)
+            send_button.pack(side=RIGHT)
 
         def send_message(self, event=None):
             message = self.send_input.get()
@@ -159,7 +172,7 @@ class Client:
 
     def open_chat_window(self, recipient):
         if recipient not in self.chat_windows:
-            self.chat_windows[recipient] = self.ChatWindow(self.main_window, self.username, recipient, self.write)
+            self.chat_windows[recipient] = self.ChatWindow(self, self.username, recipient, self.write)
 
     def open_chat(self):
         """
@@ -168,39 +181,43 @@ class Client:
         """
         self.main_window = Toplevel()
         self.main_window.title(f"Contacts - {self.username}")
+        self.main_window.geometry(self.get_window_position(350, 500))
+        self.main_window.minsize(300, 400)
+
+        # Configure window close protocol
+        self.main_window.protocol("WM_DELETE_WINDOW", self.exit_chat)
 
         # Contacts list
-        Label(self.main_window, text="Online Users", font=('Segoe UI', '12', 'bold')).pack(pady=5)
-        self.user_box = Listbox(self.main_window, width=30, height=20, bd=8)
-        self.user_box.pack(fill=BOTH, expand=True, padx=10)
+        Label(self.main_window, text="Online Users", font=('Segoe UI', '12', 'bold')).pack(pady=10)
+        self.user_box = Listbox(self.main_window, font=('Segoe UI', '10'), bd=2)
+        self.user_box.pack(fill=BOTH, expand=True, padx=15, pady=(0, 10))
         self.user_box.bind('<Double-Button-1>', lambda e: self.open_chat_window(self.user_box.get(ACTIVE)))
 
         # Exit button
-        exit_button = Button(self.main_window, text="Exit Chat", font=('Segoe UI', '12'),
-                            command=self.exit_chat, width=10)
-        exit_button.pack(pady=10)
+        exit_button = Button(self.main_window, text="Exit Chat", font=('Segoe UI', '11'),
+                            command=self.exit_chat)
+        exit_button.pack(pady=15)
 
         receive_thread = threading.Thread(target=self.receive)
         receive_thread.start()
 
-        self.main_window.mainloop()
-
     def main(self):
         # Create login window
-        ROOT.geometry("300x150")
+        ROOT.geometry(self.get_window_position(300, 150))
+        ROOT.minsize(250, 150)
         frame = Frame(ROOT, padx=20, pady=20)
         frame.pack(expand=True, fill=BOTH)
 
         instruction_label = Label(frame, text="Enter your username to join the chat",
-                               font=('Segoe UI', '12'))
+                               font=('Segoe UI', '11'))
         instruction_label.pack(pady=10)
 
-        self.name_input = Entry(frame, font=('Segoe UI', '12'))
+        self.name_input = Entry(frame, font=('Segoe UI', '11'))
         self.name_input.pack(fill=X, pady=10)
 
         connect_button = Button(frame, text="Login", command=self.connect,
-                             font=('Segoe UI', '12'), bg='#4CAF50', fg='white',
-                             width=15, relief=RAISED)
+                             font=('Segoe UI', '11'), bg='#4CAF50', fg='white',
+                             width=12)
         connect_button.pack(pady=10)
 
         ROOT.mainloop()
