@@ -22,12 +22,11 @@ class Client:
     def __init__(self):
         self.server = None
         self.user_box = None
-        self.chat_box = None
-        self.send_input = None
         self.top = None
         self.name_input = None
-        self.selected_user = StringVar()
         self.username = ""
+        self.chat_windows = {}
+        self.main_window = None
 
     def connect(self):
         """
@@ -76,11 +75,11 @@ class Client:
                         if user != self.username:
                             self.user_box.insert(END, user)
                 elif msg_type == "message":
-                    self.chat_box.insert(END, f"{sender}: {content}\n")
-                    self.chat_box.see(END)
+                    if sender not in self.chat_windows:
+                        self.open_chat_window(sender)
+                    self.chat_windows[sender].add_message(f"{sender}: {content}\n")
                 elif msg_type == "connect" and sender == "server":
-                    self.chat_box.insert(END, f"Server: {content}\n")
-                    self.chat_box.see(END)
+                    messagebox.showinfo("Server Message", content)
 
             except socket.error as err:
                 messagebox.showerror("Error", str(err))
@@ -88,20 +87,17 @@ class Client:
                 self.top.destroy()
                 break
 
-    def write(self):
+    def write(self, recipient, message):
         """
         sends message to server
+        :param recipient: recipient username
+        :param message: message content
         :return:
         """
-        recipient = self.user_box.get(ACTIVE)
-        message = self.send_input.get()
         if recipient and message:
             self.server.send(create_msg("message", self.username, recipient, message).encode())
-            self.chat_box.insert(END, f"Me to {recipient}: {message}\n")
-            self.chat_box.see(END)
-            self.send_input.delete(0, END)
-        else:
-            messagebox.showwarning("Warning", "Please select a recipient and enter a message")
+            if recipient in self.chat_windows:
+                self.chat_windows[recipient].add_message(f"Me: {message}\n")
 
     def exit_chat(self):
         """
@@ -109,49 +105,85 @@ class Client:
         :return:
         """
         self.server.send(create_msg("disconnect", self.username, "server", "").encode())
-        self.top.destroy()
+        for window in self.chat_windows.values():
+            window.window.destroy()
+        self.main_window.destroy()
+
+    class ChatWindow:
+        def __init__(self, parent, username, recipient, write_callback):
+            self.parent = parent
+            self.window = Toplevel()
+            self.window.title(f"Chat with {recipient}")
+            self.recipient = recipient
+            self.write_callback = write_callback
+
+            # Top frame for buttons
+            top_frame = Frame(self.window)
+            top_frame.pack(fill=X, padx=10, pady=5)
+            
+            exit_button = Button(top_frame, text="Exit Chat", font=('Segoe UI', '10'),
+                                command=self.exit_chat, width=8)
+            exit_button.pack(side=RIGHT)
+
+            # Chat display area
+            self.chat_box = ScrolledText(self.window, width=60, height=20, state=NORMAL, bd=8)
+            self.chat_box.pack(fill=BOTH, expand=True, padx=10, pady=5)
+
+            # Input area
+            bottom_frame = Frame(self.window)
+            bottom_frame.pack(fill=X, padx=10, pady=5)
+            
+            self.send_input = Entry(bottom_frame, width=50, bd=8)
+            self.send_input.pack(side=LEFT, expand=True, fill=X, padx=5)
+            self.send_input.bind('<Return>', self.send_message)
+            
+            send_button = Button(bottom_frame, text="Send", font=('Segoe UI', '12'),
+                                command=self.send_message, width=10)
+            send_button.pack(side=LEFT, padx=5)
+
+        def send_message(self, event=None):
+            message = self.send_input.get()
+            if message:
+                self.write_callback(self.recipient, message)
+                self.send_input.delete(0, END)
+
+        def add_message(self, message):
+            self.chat_box.insert(END, message)
+            self.chat_box.see(END)
+            
+        def exit_chat(self):
+            """Closes the chat window and removes it from the parent's chat_windows dictionary"""
+            if self.recipient in self.parent.chat_windows:
+                del self.parent.chat_windows[self.recipient]
+            self.window.destroy()
+
+    def open_chat_window(self, recipient):
+        if recipient not in self.chat_windows:
+            self.chat_windows[recipient] = self.ChatWindow(self.main_window, self.username, recipient, self.write)
 
     def open_chat(self):
         """
-        opens the chat gui
+        opens the main chat window with contacts list
         :return:
         """
-        self.top = Toplevel()
-        self.top.title(f"Chat - {self.username}")
+        self.main_window = Toplevel()
+        self.main_window.title(f"Contacts - {self.username}")
 
-        # Left panel for user list
-        left_frame = Frame(self.top)
-        left_frame.grid(row=0, column=0, padx=10, pady=10, sticky="nsew")
-        Label(left_frame, text="Online Users", font=('Segoe UI', '12', 'bold')).pack(pady=5)
-        self.user_box = Listbox(left_frame, width=20, height=25, bd=8)
-        self.user_box.pack(fill=BOTH, expand=True)
+        # Contacts list
+        Label(self.main_window, text="Online Users", font=('Segoe UI', '12', 'bold')).pack(pady=5)
+        self.user_box = Listbox(self.main_window, width=30, height=20, bd=8)
+        self.user_box.pack(fill=BOTH, expand=True, padx=10)
+        self.user_box.bind('<Double-Button-1>', lambda e: self.open_chat_window(self.user_box.get(ACTIVE)))
 
-        # Right panel for chat
-        right_frame = Frame(self.top)
-        right_frame.grid(row=0, column=1, padx=10, pady=10, sticky="nsew")
-        self.chat_box = ScrolledText(right_frame, width=80, height=25, state=NORMAL, bd=8)
-        self.chat_box.pack(fill=BOTH, expand=True)
-
-        # Bottom panel for input and buttons
-        bottom_frame = Frame(self.top)
-        bottom_frame.grid(row=1, column=0, columnspan=2, padx=10, pady=10, sticky="ew")
-        self.send_input = Entry(bottom_frame, width=80, bd=8)
-        self.send_input.pack(side=LEFT, expand=True, fill=X, padx=5)
-        send_button = Button(bottom_frame, text="Send", font=('Segoe UI', '12'),
-                          command=self.write, width=10)
-        send_button.pack(side=LEFT, padx=5)
-        exit_button = Button(bottom_frame, text="Exit Chat", font=('Segoe UI', '12'),
-                          command=self.exit_chat, width=10)
-        exit_button.pack(side=LEFT, padx=5)
-
-        # Configure grid weights
-        self.top.grid_columnconfigure(1, weight=1)
-        self.top.grid_rowconfigure(0, weight=1)
+        # Exit button
+        exit_button = Button(self.main_window, text="Exit Chat", font=('Segoe UI', '12'),
+                            command=self.exit_chat, width=10)
+        exit_button.pack(pady=10)
 
         receive_thread = threading.Thread(target=self.receive)
         receive_thread.start()
 
-        self.top.mainloop()
+        self.main_window.mainloop()
 
     def main(self):
         # Create login window
