@@ -33,10 +33,6 @@ def create_msg(msg_type, sender, recipient, content):
     
     Returns:
         str: Formatted protocol message
-    
-    Example:
-        >>> create_msg("message", "alice", "bob", "Hello!")
-        'message|alice|bob|Hello!'
     """
     return f"{msg_type}|{sender}|{recipient}|{content}"
 
@@ -61,11 +57,6 @@ def parse_msg(my_socket):
     Error Handling:
         - Returns ('disconnect', '', '', '') if connection closed
         - Returns ('error', '', '', 'Invalid message format') if message malformed
-        
-    Example:
-        >>> msg_type, sender, recipient, content = parse_msg(client_socket)
-        >>> if msg_type == 'message':
-        ...     print(f'Message from {sender} to {recipient}: {content}')
     """
     try:
         data = my_socket.recv(1024).decode()

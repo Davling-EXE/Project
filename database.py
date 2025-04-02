@@ -4,28 +4,14 @@ from pathlib import Path
 import threading
 
 class Database:
-    """Thread-safe SQLite database manager for the chat application.
+    """Thread-safe SQLite database manager for chat application.
     
-    This class manages persistent storage of user accounts and chat messages using SQLite.
-    It implements thread-safe database operations using thread-local storage and locks.
+    Manages user accounts and chat messages using SQLite with thread-safe operations.
+    Uses thread-local storage for connections and locks for write operations.
     
-    Database Schema:
-        users table:
-            - id: Unique user identifier (PRIMARY KEY)
-            - username: Unique username (TEXT)
-            - password: Hashed password using SHA-256 (TEXT)
-            
-        messages table:
-            - id: Unique message identifier (PRIMARY KEY)
-            - sender: Username of message sender (FOREIGN KEY -> users.username)
-            - recipient: Username of message recipient (FOREIGN KEY -> users.username)
-            - content: Message content (TEXT)
-            - timestamp: Message creation time (DATETIME)
-    
-    Thread Safety:
-        - Uses thread-local storage for connections to prevent sharing between threads
-        - Implements locks for write operations to prevent concurrent modifications
-        - Each thread gets its own database connection and cursor
+    Schema:
+        users: id (PK), username (unique), password (hashed)
+        messages: id (PK), sender, recipient, content, timestamp
     """
     _instance = None
     _lock = threading.Lock()
@@ -36,16 +22,7 @@ class Database:
         self._ensure_connection()
     
     def _ensure_connection(self):
-        """Ensure the current thread has its own database connection.
-        
-        This method is called before any database operation to ensure thread safety.
-        It creates a new connection if one doesn't exist for the current thread.
-        The connection is stored in thread-local storage to prevent sharing.
-        
-        Thread Safety:
-            Each thread gets its own connection stored in thread-local storage,
-            preventing any cross-thread database access issues.
-        """
+        """Creates thread-local database connection if none exists."""
         if not hasattr(self._local, 'conn') or self._local.conn is None:
             self._local.conn = sqlite3.connect(self.db_path)
             self._local.cursor = self._local.conn.cursor()
@@ -75,38 +52,25 @@ class Database:
         self._local.conn.commit()
     
     def hash_password(self, password):
-        """Hash a password using SHA-256 for secure storage.
+        """Hash password using SHA-256.
         
         Args:
-            password (str): Plain text password to hash
+            password: Plain text password
             
         Returns:
-            str: Hexadecimal string of hashed password
-            
-        Security:
-            Uses SHA-256 for one-way hashing to prevent password recovery
-            even if database is compromised.
+            Hexadecimal string of hashed password
         """
         return hashlib.sha256(password.encode()).hexdigest()
     
     def register_user(self, username, password):
-        """Register a new user account in the database.
-        
-        This method creates a new user account with the given username
-        and a hashed version of the password. It prevents duplicate
-        usernames and handles database errors gracefully.
+        """Register a new user account.
         
         Args:
-            username (str): Desired username for new account
-            password (str): Plain text password to hash and store
+            username: Desired username
+            password: Plain text password
             
         Returns:
-            tuple: (success, message) where:
-                - success (bool): True if registration successful
-                - message (str): Success/error message
-                
-        Thread Safety:
-            Uses a lock to prevent concurrent user creation
+            (success, message) tuple
         """
         self._ensure_connection()
         try:

@@ -7,17 +7,31 @@ import threading
 from tkinter.scrolledtext import ScrolledText
 from database import Database
 
-"""
-Chat Client Application
+"""Chat Client Application
 
-This module implements a GUI-based chat client using Tkinter. It provides functionality for:
-- User authentication (login/register)
-- Real-time messaging between users
-- Persistent chat history
-- Contact list management
+This module implements a GUI-based chat client using Tkinter that provides:
+- User authentication with secure password hashing
+- Real-time private messaging between users
+- Persistent chat history using SQLite
+- Dynamic contact list with online status
 
-The client connects to a chat server and uses a custom protocol for communication.
-It supports private messaging between users and maintains chat history in a database.
+GUI Components:
+- Login/Register window: User authentication forms
+- Main window: Online users list and chat management
+- Chat windows: Individual message threads with scrollable history
+
+Network Features:
+- Asynchronous message handling using threads
+- Automatic reconnection on connection loss
+- Real-time updates of online user status
+
+Error Handling:
+- Network errors: Automatic reconnection attempts
+- GUI errors: Graceful widget cleanup
+- Database errors: Transaction rollback and retry
+
+The client implements the chat protocol for structured communication
+with the server and maintains persistent message history.
 """
 
 # Network configuration constants
@@ -36,15 +50,15 @@ class Client:
         """Initialize the chat client with necessary attributes.
         
         Attributes:
-            server: Socket connection to chat server
-            user_box: Listbox widget displaying online users
-            top: Top-level window reference
-            name_input: Username entry widget
-            pass_input: Password entry widget
-            username: Current user's username
-            chat_windows: Dictionary mapping usernames to chat window instances
-            main_window: Main application window
-            db: Database instance for persistent storage
+        server: Socket connection to chat server
+        user_box: Listbox widget displaying online users
+        top: Top-level window reference
+        name_input: Username entry widget
+        pass_input: Password entry widget
+        username: Current user's username
+        chat_windows: Dictionary mapping usernames to chat window instances
+        main_window: Main application window
+        db: Database instance for persistent storage
         """
         self.server = None          # Socket connection to server
         self.user_box = None       # Listbox for displaying online users

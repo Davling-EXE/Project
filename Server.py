@@ -4,18 +4,28 @@ from Protocol import *
 import threading
 from database import Database
 
-"""
-Chat Server Application
+"""Chat Server Application
 
 This module implements a multi-threaded chat server that:
-- Accepts and manages client connections
-- Handles user authentication
-- Routes messages between clients
-- Maintains list of online users
-- Persists chat messages in database
+- Accepts and manages client connections using thread-safe socket operations
+- Handles user authentication and session management
+- Routes private messages between connected clients
+- Maintains real-time list of online users
+- Persists chat messages in SQLite database
+- Implements error handling and connection recovery
 
-The server uses TCP sockets for communication and implements
-a custom protocol for message handling.
+Threading Model:
+- Main thread: Accepts new connections and spawns handler threads
+- Client threads: One per connected client, handles message processing
+- Database operations: Thread-safe using connection pooling
+
+Error Handling:
+- Socket errors: Graceful disconnection and resource cleanup
+- Database errors: Transaction rollback and connection recovery
+- Protocol errors: Client notification and session termination
+
+The server uses TCP sockets for reliable message delivery and implements
+a custom protocol for structured message handling.
 """
 
 # Network configuration
@@ -30,10 +40,10 @@ class Server:
         Initialize the chat server.
         
         Attributes:
-            server: Main server socket for accepting connections
-            clients: Dictionary mapping usernames to client sockets
-            user_sockets: Dictionary mapping socket objects to usernames
-            db: Database instance for persistent storage
+        server: Main server socket for accepting connections
+        clients: Dictionary mapping usernames to client sockets
+        user_sockets: Dictionary mapping socket objects to usernames
+        db: Database instance for persistent storage
         """
         self.server = None                # Main server socket
         self.clients = {}                # Active clients {username: socket}
