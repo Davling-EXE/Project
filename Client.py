@@ -8,12 +8,24 @@ from tkinter.scrolledtext import ScrolledText
 from database import Database
 
 """
-constants
+Chat Client Application
+
+This module implements a GUI-based chat client using Tkinter. It provides functionality for:
+- User authentication (login/register)
+- Real-time messaging between users
+- Persistent chat history
+- Contact list management
+
+The client connects to a chat server and uses a custom protocol for communication.
+It supports private messaging between users and maintains chat history in a database.
 """
 
-SERVER_IP = "127.0.0.1"
-PORT = 8820
-MAX_PACKAGE = 1024
+# Network configuration constants
+SERVER_IP = "127.0.0.1"  # Local server address
+PORT = 8820             # Server port number
+MAX_PACKAGE = 1024      # Maximum packet size for network communication
+
+# Initialize main Tkinter root window
 ROOT = Tk()
 ROOT.title("Chat Login")
 
@@ -21,29 +33,63 @@ ROOT.title("Chat Login")
 class Client:
 
     def __init__(self):
-        self.server = None
-        self.user_box = None
-        self.top = None
-        self.name_input = None
-        self.pass_input = None
-        self.username = ""
-        self.chat_windows = {}
-        self.main_window = None
-        self.db = Database()
+        """Initialize the chat client with necessary attributes.
+        
+        Attributes:
+            server: Socket connection to chat server
+            user_box: Listbox widget displaying online users
+            top: Top-level window reference
+            name_input: Username entry widget
+            pass_input: Password entry widget
+            username: Current user's username
+            chat_windows: Dictionary mapping usernames to chat window instances
+            main_window: Main application window
+            db: Database instance for persistent storage
+        """
+        self.server = None          # Socket connection to server
+        self.user_box = None       # Listbox for displaying online users
+        self.top = None            # Reference to top-level window
+        self.name_input = None     # Username input field
+        self.pass_input = None     # Password input field
+        self.username = ""         # Current user's username
+        self.chat_windows = {}     # Active chat windows {username: ChatWindow}
+        self.main_window = None    # Main application window
+        self.db = Database()       # Database connection
 
     def get_window_position(self, width, height):
-        """Calculate window position to center it on screen"""
-        screen_width = ROOT.winfo_screenwidth()
-        screen_height = ROOT.winfo_screenheight()
-        x = (screen_width - width) // 2
-        y = (screen_height - height) // 2
-        return f"{width}x{height}+{x}+{y}"
+        """Calculate window position to center it on screen.
+        
+        Args:
+            width (int): Desired window width in pixels
+            height (int): Desired window height in pixels
+            
+        Returns:
+            str: Tkinter geometry string in format 'widthxheight+x+y'
+                where x,y are screen coordinates for centered position
+        """
+        screen_width = ROOT.winfo_screenwidth()     # Get screen width
+        screen_height = ROOT.winfo_screenheight()  # Get screen height
+        x = (screen_width - width) // 2           # Calculate x coordinate
+        y = (screen_height - height) // 2         # Calculate y coordinate
+        return f"{width}x{height}+{x}+{y}"         # Return geometry string
 
     def connect(self, is_login=True):
-        """
-        connects to the server with authentication
-        :param is_login: True if logging in, False if registering
-        :return:
+        """Handle user authentication and establish server connection.
+        
+        This method performs the following steps:
+        1. Validates user input (username/password)
+        2. Authenticates with database (login or register)
+        3. Establishes socket connection with chat server
+        4. Processes server response
+        
+        Args:
+            is_login (bool): True for login, False for registration
+            
+        Side effects:
+            - Updates self.username if authentication succeeds
+            - Creates socket connection in self.server
+            - Shows error messages for failed attempts
+            - Opens main chat window on success
         """
         try:
             username = self.name_input.get()
@@ -80,9 +126,17 @@ class Client:
             messagebox.showerror("Connection Error", str(err))
 
     def receive(self):
-        """
-        this takes care of receiving messages from the server
-        :return:
+        """Handle incoming messages from the server in a separate thread.
+        
+        This method runs in a background thread and continuously processes
+        different types of messages:
+        - error: Display error messages and handle disconnection
+        - user_list: Update the online users list
+        - message: Display incoming chat messages
+        - connect: Show server connection messages
+        
+        The method handles socket errors and updates UI accordingly.
+        Runs until the connection is closed or an error occurs.
         """
         while True:
             try:
@@ -125,11 +179,15 @@ class Client:
                 break
 
     def write(self, recipient, message):
-        """
-        sends message to server
-        :param recipient: recipient username
-        :param message: message content
-        :return:
+        """Send a chat message to a specific recipient.
+        
+        Args:
+            recipient (str): Username of the message recipient
+            message (str): Content of the message to send
+            
+        Side effects:
+            - Sends message to server via socket
+            - Updates local chat window with sent message
         """
         if recipient and message:
             self.server.send(create_msg("message", self.username, recipient, message).encode())
@@ -137,8 +195,15 @@ class Client:
                 self.chat_windows[recipient].add_message(f"Me: {message}\n")
 
     def exit_chat(self):
-        """
-        leaves the chat and terminates the program
+        """Clean up resources and exit the chat application.
+        
+        This method performs a graceful shutdown by:
+        1. Sending disconnect message to server
+        2. Closing all chat windows
+        3. Closing the main window
+        4. Terminating the program
+        
+        Handles any errors during cleanup and ensures proper exit.
         """
         try:
             # Send disconnect message to server
@@ -165,7 +230,21 @@ class Client:
             sys.exit(1)
 
     class ChatWindow:
+        """Represents a private chat window between two users.
+        
+        This class manages the UI and functionality of individual chat windows,
+        including message display, sending messages, and window management.
+        """
+        
         def __init__(self, parent, username, recipient, write_callback):
+            """Initialize a new chat window.
+            
+            Args:
+                parent (Client): Reference to main client instance
+                username (str): Current user's username
+                recipient (str): Chat partner's username
+                write_callback (callable): Function to send messages
+            """
             self.parent = parent
             self.window = Toplevel()
             self.window.title(f"Chat with {recipient}")
@@ -254,6 +333,11 @@ class Client:
         receive_thread.start()
 
     def main(self):
+        """Initialize and run the main application.
+        
+        Creates the login/register window with input fields and buttons.
+        Sets up the main event loop for the application.
+        """
         # Create login/register window
         ROOT.geometry(self.get_window_position(300, 250))
         ROOT.minsize(250, 250)

@@ -5,24 +5,49 @@ import threading
 from database import Database
 
 """
-constants
+Chat Server Application
+
+This module implements a multi-threaded chat server that:
+- Accepts and manages client connections
+- Handles user authentication
+- Routes messages between clients
+- Maintains list of online users
+- Persists chat messages in database
+
+The server uses TCP sockets for communication and implements
+a custom protocol for message handling.
 """
 
-IP = '0.0.0.0'
-PORT = 8820
-MAX_PACKET = 1024
+# Network configuration
+IP = '0.0.0.0'        # Listen on all available interfaces
+PORT = 8820          # Server port number
+MAX_PACKET = 1024    # Maximum size of received packets
 
 
 class Server:
     def __init__(self):
-        self.server = None
-        self.clients = {}
-        self.user_sockets = {}
-        self.db = Database()
+        """
+        Initialize the chat server.
+        
+        Attributes:
+            server: Main server socket for accepting connections
+            clients: Dictionary mapping usernames to client sockets
+            user_sockets: Dictionary mapping socket objects to usernames
+            db: Database instance for persistent storage
+        """
+        self.server = None                # Main server socket
+        self.clients = {}                # Active clients {username: socket}
+        self.user_sockets = {}           # Reverse lookup {socket: username}
+        self.db = Database()             # Database connection
 
     def send_user_list(self):
         """
-        Sends the list of online users to all connected clients
+        Broadcast the list of online users to all connected clients.
+        
+        This method is called whenever a user connects or disconnects
+        to keep all clients updated with the current list of online users.
+        
+        The user list is sent as a comma-separated string of usernames.
         """
         online_users = list(self.clients.keys())
         for username, client in self.clients.items():
@@ -30,16 +55,32 @@ class Server:
 
     def send_private_message(self, msg_type, sender, recipient, content):
         """
-        Sends a private message to a specific user
+        Route a message to a specific user.
+        
+        Args:
+            msg_type (str): Type of message being sent
+            sender (str): Username of message sender
+            recipient (str): Username of message recipient
+            content (str): Message content
+        
+        The message is only sent if the recipient is currently online.
         """
         if recipient in self.clients:
             self.clients[recipient].send(create_msg(msg_type, sender, recipient, content).encode())
 
     def handle(self, client, username):
         """
-        Handles messages from a client
-        :param client: Client socket
-        :param username: Username of the client
+        Handle all messages from a connected client.
+        
+        This method runs in a separate thread for each client and:
+        - Processes incoming messages
+        - Routes messages to appropriate recipients
+        - Handles client disconnection
+        - Updates online user list when client disconnects
+        
+        Args:
+            client (socket): Client's socket connection
+            username (str): Client's username
         """
         while True:
             try:
@@ -63,7 +104,15 @@ class Server:
 
     def receive(self):
         """
-        Accepts new client connections and initializes their sessions
+        Accept and handle new client connections.
+        
+        This is the main server loop that:
+        - Accepts new socket connections
+        - Validates connection requests
+        - Initializes client sessions
+        - Spawns client handler threads
+        
+        The method runs indefinitely until the server is stopped.
         """
         while True:
             client, address = self.server.accept()
