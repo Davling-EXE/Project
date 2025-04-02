@@ -2,6 +2,7 @@
 import socket
 from Protocol import *
 import threading
+from database import Database
 
 """
 constants
@@ -17,6 +18,7 @@ class Server:
         self.server = None
         self.clients = {}
         self.user_sockets = {}
+        self.db = Database()
 
     def send_user_list(self):
         """
@@ -50,6 +52,7 @@ class Server:
                         self.send_user_list()
                     break
                 elif msg_type == "message":
+                    self.db.save_message(sender, recipient, content)
                     self.send_private_message(msg_type, sender, recipient, content)
             except socket.error as err:
                 print(f"Error handling client {username}: {err}")

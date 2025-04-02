@@ -220,6 +220,11 @@ class Client:
     def open_chat_window(self, recipient):
         if recipient not in self.chat_windows:
             self.chat_windows[recipient] = self.ChatWindow(self, self.username, recipient, self.write)
+            # Load chat history
+            chat_history = self.db.get_chat_history(self.username, recipient)
+            for sender, content, timestamp in chat_history:
+                display_name = "Me" if sender == self.username else sender
+                self.chat_windows[recipient].add_message(f"{display_name} ({timestamp}): {content}\n")
 
     def open_chat(self):
         """
