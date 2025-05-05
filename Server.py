@@ -3,6 +3,7 @@ import socket
 from Protocol import *
 import threading
 from database import Database
+from Encryption import RSAEncryption, AESEncryption
 
 """Chat Server Application
 
@@ -49,6 +50,8 @@ class Server:
         self.clients = {}                # Active clients {username: socket}
         self.user_sockets = {}           # Reverse lookup {socket: username}
         self.db = Database()             # Database connection
+        self.rsa = RSAEncryption()
+        self.aes_keys = {}
 
     def send_user_list(self):
         """
@@ -76,7 +79,11 @@ class Server:
         The message is only sent if the recipient is currently online.
         """
         if recipient in self.clients:
-            self.clients[recipient].send(create_msg(msg_type, sender, recipient, content).encode())
+            if sender in self.aes_keys and recipient in self.aes_keys:
+                encrypted = self.aes_keys[recipient].encrypt(content.encode()).hex()
+            else:
+                encrypted = content
+            self.clients[recipient].send(create_msg(msg_type, sender, recipient, encrypted).encode())
 
     def handle(self, client, username):
         """
@@ -95,20 +102,30 @@ class Server:
         while True:
             try:
                 msg_type, sender, recipient, content = parse_msg(client)
-                
                 if msg_type == "disconnect" or msg_type == "error":
                     if username in self.clients:
                         del self.clients[username]
+                        if username in self.aes_keys:
+                            del self.aes_keys[username]
                         client.close()
                         self.send_user_list()
                     break
                 elif msg_type == "message":
-                    self.db.save_message(sender, recipient, content)
-                    self.send_private_message(msg_type, sender, recipient, content)
+                    if username in self.aes_keys:
+                        try:
+                            decrypted = self.aes_keys[username].decrypt(bytes.fromhex(content)).decode()
+                        except Exception:
+                            decrypted = "[Decryption failed]"
+                    else:
+                        decrypted = content
+                    self.db.save_message(sender, recipient, decrypted)
+                    self.send_private_message(msg_type, sender, recipient, decrypted)
             except socket.error as err:
                 print(f"Error handling client {username}: {err}")
                 if username in self.clients:
                     del self.clients[username]
+                    if username in self.aes_keys:
+                        del self.aes_keys[username]
                     self.send_user_list()
                 break
 
@@ -127,18 +144,21 @@ class Server:
         while True:
             client, address = self.server.accept()
             print(f"New connection from {str(address)}")
-
             msg_type, sender, recipient, content = parse_msg(client)
-
             if msg_type == "connect":
                 username = sender
                 if username not in self.clients:
                     self.clients[username] = client
                     print(f"User {username} connected")
-                    
-                    client.send(create_msg("connect", "server", username, "Connected to server").encode())
+                    # Send server public key to client
+                    client.send(create_msg("connect", "server", username, self.rsa.export_public_key().decode()).encode())
+                    # Wait for AES key from client
+                    aes_msg_type, aes_sender, aes_recipient, aes_content = parse_msg(client)
+                    if aes_msg_type == "aes_key":
+                        encrypted_aes = bytes.fromhex(aes_content)
+                        aes_key = self.rsa.decrypt_with_private_key(encrypted_aes)
+                        self.aes_keys[username] = AESEncryption(aes_key)
                     self.send_user_list()
-                    
                     thread = threading.Thread(target=self.handle, args=(client, username))
                     thread.start()
                 else:

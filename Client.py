@@ -6,6 +6,7 @@ from tkinter import messagebox
 import threading
 from tkinter.scrolledtext import ScrolledText
 from database import Database
+from Encryption import RSAEncryption, AESEncryption
 
 """Chat Client Application
 
@@ -69,6 +70,9 @@ class Client:
         self.chat_windows = {}     # Active chat windows {username: ChatWindow}
         self.main_window = None    # Main application window
         self.db = Database()       # Database connection
+        self.rsa = RSAEncryption()
+        self.aes = None
+        self.peer_public_keys = {}
 
     def get_window_position(self, width, height):
         """Calculate window position to center it on screen.
@@ -125,14 +129,20 @@ class Client:
             self.username = username
             self.server = socket.socket()
             self.server.connect((SERVER_IP, PORT))
-            self.server.send(create_msg("connect", self.username, "server", "").encode())
-
+            # Exchange public keys
+            self.server.send(create_msg("connect", self.username, "server", self.rsa.export_public_key().decode()).encode())
             msg_type, sender, recipient, content = parse_msg(self.server)
-            if msg_type == "error":
+            if msg_type == "connect":
+                # Receive server's public key and AES key encrypted for us
+                server_pub_key = content.encode()
+                # Generate AES key and send it encrypted to server
+                self.aes = AESEncryption()
+                encrypted_aes = self.rsa.encrypt_with_public_key(self.aes.key, server_pub_key)
+                self.server.send(create_msg("aes_key", self.username, "server", encrypted_aes.hex()).encode())
+            elif msg_type == "error":
                 messagebox.showerror("Connection Error", content)
                 self.server.close()
                 return
-
             messagebox.showinfo("Connected successfully", f"Connected as {self.username}")
             self.open_chat()
 
@@ -155,6 +165,19 @@ class Client:
         while True:
             try:
                 msg_type, sender, recipient, content = parse_msg(self.server)
+                if msg_type == "message":
+                    if self.aes:
+                        try:
+                            decrypted = self.aes.decrypt(bytes.fromhex(content)).decode()
+                        except Exception:
+                            decrypted = "[Decryption failed]"
+                    else:
+                        decrypted = content
+                    if sender not in self.chat_windows:
+                        self.open_chat_window(sender)
+                    if sender in self.chat_windows and self.chat_windows[sender].window.winfo_exists():
+                        self.chat_windows[sender].add_message(f"{sender}: {decrypted}\n")
+                    continue
                 
                 if msg_type == "error":
                     messagebox.showerror("Error", content)
@@ -203,19 +226,22 @@ class Client:
             - Sends message to server via socket
             - Updates local chat window with sent message
         """
-        if recipient and message:
-            self.server.send(create_msg("message", self.username, recipient, message).encode())
-            if recipient in self.chat_windows:
-                self.chat_windows[recipient].add_message(f"Me: {message}\n")
+        if self.aes:
+            encrypted = self.aes.encrypt(message.encode()).hex()
+        else:
+            encrypted = message
+        self.server.send(create_msg("message", self.username, recipient, encrypted).encode())
+        if recipient in self.chat_windows:
+            self.chat_windows[recipient].add_message(f"Me: {message}\n")
 
     def exit_chat(self):
         """Clean up resources and exit the chat application.
         
         This method performs a graceful shutdown by:
-        1. Sending disconnect message to server
-        2. Closing all chat windows
-        3. Closing the main window
-        4. Terminating the program
+        1. Sends disconnect message to server
+        2. Closes all chat windows
+        3. Closes the main window
+        4. Terminates the program
         
         Handles any errors during cleanup and ensures proper exit.
         """

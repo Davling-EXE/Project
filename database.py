@@ -4,15 +4,6 @@ from pathlib import Path
 import threading
 
 class Database:
-    """Thread-safe SQLite database manager for chat application.
-    
-    Manages user accounts and chat messages using SQLite with thread-safe operations.
-    Uses thread-local storage for connections and locks for write operations.
-    
-    Schema:
-        users: id (PK), username (unique), password (hashed)
-        messages: id (PK), sender, recipient, content, timestamp
-    """
     _instance = None
     _lock = threading.Lock()
     _local = threading.local()
