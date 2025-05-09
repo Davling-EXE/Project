@@ -1,6 +1,7 @@
 
+from typing import Optional, Dict, Any, Callable, List, Tuple
 import socket
-from Protocol import *
+from Protocol import create_msg, parse_msg # Adjusted import
 import threading
 from database import Database
 from Encryption import RSAEncryption, AESEncryption
@@ -36,7 +37,7 @@ MAX_PACKET = 1024    # Maximum size of received packets
 
 
 class Server:
-    def __init__(self):
+    def __init__(self) -> None:
         """
         Initialize the chat server.
         
@@ -46,15 +47,15 @@ class Server:
         user_sockets: Dictionary mapping socket objects to usernames
         db: Database instance for persistent storage
         """
-        self.server = None                # Main server socket
-        self.clients = {}                # Active clients {username: socket}
-        self.user_sockets = {}           # Reverse lookup {socket: username}
-        self.db = Database()             # Database connection
-        self.rsa = RSAEncryption()
-        self.aes_keys = {}
-        self.active_calls = {}  # {caller: {recipient: recipient_socket, caller_port: port, recipient_port: port}, ...}
+        self.server: Optional[socket.socket] = None                # Main server socket
+        self.clients: Dict[str, socket.socket] = {}                # Active clients {username: socket}
+        self.user_sockets: Dict[socket.socket, str] = {}           # Reverse lookup {socket: username}
+        self.db: Database = Database()             # Database connection
+        self.rsa: RSAEncryption = RSAEncryption()
+        self.aes_keys: Dict[str, AESEncryption] = {}
+        self.active_calls: Dict[str, Dict[str, Dict[str, Any]]] = {}  # {caller: {recipient: {details...}}, ...}
 
-    def send_user_list(self):
+    def send_user_list(self) -> None:
         """
         Broadcast the list of online users to all connected clients.
         
@@ -67,7 +68,7 @@ class Server:
         for username, client in self.clients.items():
             client.send(create_msg("user_list", "server", username, ",".join(online_users)).encode())
 
-    def send_private_message(self, msg_type, sender, recipient, content):
+    def send_private_message(self, msg_type: str, sender: str, recipient: str, content: str) -> None:
         """
         Route a message to a specific user.
         
@@ -86,7 +87,7 @@ class Server:
                 encrypted = content
             self.clients[recipient].send(create_msg(msg_type, sender, recipient, encrypted).encode())
 
-    def handle(self, client, username):
+    def handle(self, client: socket.socket, username: str) -> None:
         """
         Handle all messages from a connected client.
         

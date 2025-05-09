@@ -1,25 +1,26 @@
+from typing import Tuple, Optional
 import sqlite3
 import hashlib
 from pathlib import Path
 import threading
 
 class Database:
-    _instance = None
-    _lock = threading.Lock()
-    _local = threading.local()
+    _instance: Optional['Database'] = None
+    _lock: threading.Lock = threading.Lock()
+    _local: threading.local = threading.local()
     
-    def __init__(self):
-        self.db_path = Path('users.db')
+    def __init__(self) -> None:
+        self.db_path: Path = Path('users.db')
         self._ensure_connection()
     
-    def _ensure_connection(self):
+    def _ensure_connection(self) -> None:
         """Creates thread-local database connection if none exists."""
         if not hasattr(self._local, 'conn') or self._local.conn is None:
-            self._local.conn = sqlite3.connect(self.db_path)
-            self._local.cursor = self._local.conn.cursor()
+            self._local.conn: sqlite3.Connection = sqlite3.connect(self.db_path)
+            self._local.cursor: sqlite3.Cursor = self._local.conn.cursor()
             self._setup_tables()
     
-    def _setup_tables(self):
+    def _setup_tables(self) -> None:
         """Initialize database tables if they don't exist"""
         self._local.cursor.execute("""
             CREATE TABLE IF NOT EXISTS users (
@@ -42,7 +43,7 @@ class Database:
         """)
         self._local.conn.commit()
     
-    def hash_password(self, password):
+    def hash_password(self, password: str) -> str:
         """Hash password using SHA-256.
         
         Args:
@@ -53,7 +54,7 @@ class Database:
         """
         return hashlib.sha256(password.encode()).hexdigest()
     
-    def register_user(self, username, password):
+    def register_user(self, username: str, password: str) -> Tuple[bool, str]:
         """Register a new user account.
         
         Args:
@@ -78,7 +79,7 @@ class Database:
         except Exception as e:
             return False, str(e)
     
-    def authenticate_user(self, username, password):
+    def authenticate_user(self, username: str, password: str) -> Tuple[bool, str]:
         """Authenticate user credentials"""
         self._ensure_connection()
         try:
@@ -92,7 +93,7 @@ class Database:
         except Exception as e:
             return False, str(e)
     
-    def save_message(self, sender, recipient, content):
+    def save_message(self, sender: str, recipient: str, content: str) -> Tuple[bool, str]:
         """Save a message to the database"""
         self._ensure_connection()
         try:
@@ -107,7 +108,7 @@ class Database:
             print(f"Error saving message: {e}")
             return False
     
-    def get_chat_history(self, user1, user2):
+    def get_chat_history(self, user1: str, user2: str) -> Tuple[bool, list]:
         """Get chat history between two users"""
         self._ensure_connection()
         try:

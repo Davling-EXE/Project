@@ -16,7 +16,10 @@ Example Messages:
 - User list update: "user_list|server|alice|bob,charlie,david"
 """
 
-def create_msg(msg_type, sender, recipient, content):
+from typing import Tuple
+import socket
+
+def create_msg(msg_type: str, sender: str, recipient: str, content: str) -> str:
     """
     Creates a message following the protocol format: <type>|<sender>|<recipient>|<content>
     
@@ -36,7 +39,7 @@ def create_msg(msg_type, sender, recipient, content):
     """
     return f"{msg_type}|{sender}|{recipient}|{content}"
 
-def parse_msg(my_socket):
+def parse_msg(my_socket: socket.socket) -> Tuple[str, str, str, str]:
     """
     Receive and parse a protocol message from a socket connection.
     

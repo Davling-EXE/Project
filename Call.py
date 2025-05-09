@@ -1,3 +1,4 @@
+from typing import Any # Added for type hinting
 import pyaudio
 import socket
 import threading
@@ -11,7 +12,7 @@ RATE = 44100  # Sampling rate (samples per second)
 
 
 # --- Sending Thread ---
-def send_audio(target_ip, target_port, stop_event, p_audio):
+def send_audio(target_ip: str, target_port: int, stop_event: threading.Event, p_audio: pyaudio.PyAudio) -> None:
     """Captures audio from microphone and sends it over UDP."""
     print(f"Audio sender started. Target: {target_ip}:{target_port}")
     sending_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -49,7 +50,7 @@ def send_audio(target_ip, target_port, stop_event, p_audio):
 
 
 # --- Receiving Thread ---
-def receive_audio(my_listen_ip, my_listen_port, stop_event, p_audio):
+def receive_audio(my_listen_ip: str, my_listen_port: int, stop_event: threading.Event, p_audio: pyaudio.PyAudio) -> None:
     """Receives audio over UDP and plays it on speakers."""
     print(f"Audio receiver started. Listening on: {my_listen_ip}:{my_listen_port}")
     receiving_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
