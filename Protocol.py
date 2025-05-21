@@ -16,13 +16,10 @@ Example Messages:
 - User list update: "user_list|server|alice|bob,charlie,david"
 """
 
-from typing import Tuple
-import socket
-
-def create_msg(msg_type: str, sender: str, recipient: str, content: str) -> str:
+def create_msg(msg_type, sender, recipient, content):
     """
     Creates a message following the protocol format: <type>|<sender>|<recipient>|<content>
-    
+
     Args:
         msg_type (str): Type of message - one of:
             - connect: Client connection request
@@ -33,30 +30,30 @@ def create_msg(msg_type: str, sender: str, recipient: str, content: str) -> str:
         sender (str): Username of message sender
         recipient (str): Username of intended recipient
         content (str): Message payload
-    
+
     Returns:
         str: Formatted protocol message
     """
     return f"{msg_type}|{sender}|{recipient}|{content}"
 
-def parse_msg(my_socket: socket.socket) -> Tuple[str, str, str, str]:
+def parse_msg(my_socket):
     """
     Receive and parse a protocol message from a socket connection.
-    
+
     This function handles receiving raw socket data and parsing it according
     to the protocol format. It includes error handling for disconnections and
     malformed messages.
-    
+
     Args:
         my_socket (socket.socket): Connected socket to receive data from
-        
+
     Returns:
         tuple: A 4-tuple containing:
             - msg_type (str): Message type (connect/disconnect/message/user_list/error)
             - sender (str): Username of message sender
             - recipient (str): Username of intended recipient
             - content (str): Message content
-            
+
     Error Handling:
         - Returns ('disconnect', '', '', '') if connection closed
         - Returns ('error', '', '', 'Invalid message format') if message malformed
