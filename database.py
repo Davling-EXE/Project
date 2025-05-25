@@ -83,6 +83,123 @@ class Database:
                                    )
                                        )
                                    """)
+
+        self._local.cursor.execute("""
+                                   CREATE TABLE IF NOT EXISTS groups
+                                   (
+                                       id
+                                       INTEGER
+                                       PRIMARY
+                                       KEY
+                                       AUTOINCREMENT,
+                                       group_name
+                                       TEXT
+                                       UNIQUE
+                                       NOT
+                                       NULL,
+                                       created_by
+                                       TEXT
+                                       NOT
+                                       NULL,
+                                       created_at
+                                       DATETIME
+                                       DEFAULT
+                                       CURRENT_TIMESTAMP,
+                                       FOREIGN
+                                       KEY
+                                   (
+                                       created_by
+                                   ) REFERENCES users
+                                   (
+                                       username
+                                   )
+                                   )
+                                   """)
+
+        self._local.cursor.execute("""
+                                   CREATE TABLE IF NOT EXISTS group_members
+                                   (
+                                       id
+                                       INTEGER
+                                       PRIMARY
+                                       KEY
+                                       AUTOINCREMENT,
+                                       group_name
+                                       TEXT
+                                       NOT
+                                       NULL,
+                                       username
+                                       TEXT
+                                       NOT
+                                       NULL,
+                                       joined_at
+                                       DATETIME
+                                       DEFAULT
+                                       CURRENT_TIMESTAMP,
+                                       FOREIGN
+                                       KEY
+                                   (
+                                       group_name
+                                   ) REFERENCES groups
+                                   (
+                                       group_name
+                                   ),
+                                       FOREIGN KEY
+                                   (
+                                       username
+                                   ) REFERENCES users
+                                   (
+                                       username
+                                   ),
+                                       UNIQUE
+                                   (
+                                       group_name,
+                                       username
+                                   )
+                                   )
+                                   """)
+
+        self._local.cursor.execute("""
+                                   CREATE TABLE IF NOT EXISTS group_messages
+                                   (
+                                       id
+                                       INTEGER
+                                       PRIMARY
+                                       KEY
+                                       AUTOINCREMENT,
+                                       group_name
+                                       TEXT
+                                       NOT
+                                       NULL,
+                                       sender
+                                       TEXT
+                                       NOT
+                                       NULL,
+                                       content
+                                       TEXT
+                                       NOT
+                                       NULL,
+                                       timestamp
+                                       DATETIME
+                                       DEFAULT
+                                       CURRENT_TIMESTAMP,
+                                       FOREIGN
+                                       KEY
+                                   (
+                                       group_name
+                                   ) REFERENCES groups
+                                   (
+                                       group_name
+                                   ),
+                                       FOREIGN KEY
+                                   (
+                                       sender
+                                   ) REFERENCES users
+                                   (
+                                       username
+                                   )
+                                   )
+                                   """)
         self._local.conn.commit()
 
     def hash_password(self, password):
@@ -164,6 +281,105 @@ class Database:
             return self._local.cursor.fetchall()
         except Exception as e:
             print(f"Error retrieving chat history: {e}")
+            return []
+
+    def create_group(self, group_name, creator):
+        """Create a new group"""
+        self._ensure_connection()
+        try:
+            with self._lock:
+                self._local.cursor.execute(
+                    "INSERT INTO groups (group_name, created_by) VALUES (?, ?)",
+                    (group_name, creator)
+                )
+                # Add creator as first member
+                self._local.cursor.execute(
+                    "INSERT INTO group_members (group_name, username) VALUES (?, ?)",
+                    (group_name, creator)
+                )
+                self._local.conn.commit()
+            return True, "Group created successfully"
+        except sqlite3.IntegrityError:
+            return False, "Group name already exists"
+        except Exception as e:
+            return False, str(e)
+
+    def join_group(self, group_name, username):
+        """Join an existing group"""
+        self._ensure_connection()
+        try:
+            # Check if group exists
+            self._local.cursor.execute(
+                "SELECT * FROM groups WHERE group_name = ?",
+                (group_name,)
+            )
+            if not self._local.cursor.fetchone():
+                return False, "Group does not exist"
+            
+            with self._lock:
+                self._local.cursor.execute(
+                    "INSERT INTO group_members (group_name, username) VALUES (?, ?)",
+                    (group_name, username)
+                )
+                self._local.conn.commit()
+            return True, "Joined group successfully"
+        except sqlite3.IntegrityError:
+            return False, "Already a member of this group"
+        except Exception as e:
+            return False, str(e)
+
+    def get_user_groups(self, username):
+        """Get all groups a user is a member of"""
+        self._ensure_connection()
+        try:
+            self._local.cursor.execute(
+                "SELECT group_name FROM group_members WHERE username = ?",
+                (username,)
+            )
+            return [row[0] for row in self._local.cursor.fetchall()]
+        except Exception as e:
+            print(f"Error retrieving user groups: {e}")
+            return []
+
+    def get_group_members(self, group_name):
+        """Get all members of a group"""
+        self._ensure_connection()
+        try:
+            self._local.cursor.execute(
+                "SELECT username FROM group_members WHERE group_name = ?",
+                (group_name,)
+            )
+            return [row[0] for row in self._local.cursor.fetchall()]
+        except Exception as e:
+            print(f"Error retrieving group members: {e}")
+            return []
+
+    def save_group_message(self, group_name, sender, content):
+        """Save a group message to the database"""
+        self._ensure_connection()
+        try:
+            with self._lock:
+                self._local.cursor.execute(
+                    "INSERT INTO group_messages (group_name, sender, content) VALUES (?, ?, ?)",
+                    (group_name, sender, content)
+                )
+                self._local.conn.commit()
+            return True
+        except Exception as e:
+            print(f"Error saving group message: {e}")
+            return False
+
+    def get_group_chat_history(self, group_name):
+        """Get chat history for a group"""
+        self._ensure_connection()
+        try:
+            self._local.cursor.execute(
+                "SELECT sender, content, timestamp FROM group_messages WHERE group_name = ? ORDER BY timestamp ASC",
+                (group_name,)
+            )
+            return self._local.cursor.fetchall()
+        except Exception as e:
+            print(f"Error retrieving group chat history: {e}")
             return []
 
     def close(self):

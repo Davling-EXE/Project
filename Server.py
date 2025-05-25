@@ -38,11 +38,10 @@ MAX_PACKET = 1024    # Maximum size of received packets
 class Server:
     def __init__(self):
         """
-        Initialize the chat server.
+        Initialize the server with empty client dictionaries and database connection.
 
         Attributes:
-        server: Main server socket for accepting connections
-        clients: Dictionary mapping usernames to client sockets
+        clients: Dictionary mapping usernames to socket connections
         user_sockets: Dictionary mapping socket objects to usernames
         db: Database instance for persistent storage
         """
@@ -52,6 +51,7 @@ class Server:
         self.db = Database()             # Database connection
         self.rsa = RSAEncryption()
         self.aes_keys = {}
+        self.user_groups = {}            # Cache of user groups {username: [group_names]}
 
     def send_user_list(self):
         """
@@ -65,6 +65,29 @@ class Server:
         online_users = list(self.clients.keys())
         for username, client in self.clients.items():
             client.send(create_msg("user_list", "server", username, ",".join(online_users)).encode())
+
+    def send_group_list(self, username):
+        """
+        Send the list of groups a user belongs to.
+        """
+        if username in self.clients:
+            user_groups = self.db.get_user_groups(username)
+            self.user_groups[username] = user_groups
+            group_list = ",".join(user_groups)
+            self.clients[username].send(create_msg("group_list", "server", username, group_list).encode())
+
+    def send_group_message(self, group_name, sender, content):
+        """
+        Broadcast a message to all members of a group who are currently online.
+        """
+        group_members = self.db.get_group_members(group_name)
+        for member in group_members:
+            if member in self.clients and member != sender:
+                if member in self.aes_keys:
+                    encrypted = self.aes_keys[member].encrypt(content.encode()).hex()
+                else:
+                    encrypted = content
+                self.clients[member].send(create_msg("group_message", sender, group_name, encrypted).encode())
 
     def send_private_message(self, msg_type, sender, recipient, content):
         """
@@ -105,8 +128,12 @@ class Server:
                 if msg_type == "disconnect" or msg_type == "error":
                     if username in self.clients:
                         del self.clients[username]
+                        if client in self.user_sockets:
+                            del self.user_sockets[client]
                         if username in self.aes_keys:
                             del self.aes_keys[username]
+                        if username in self.user_groups:
+                            del self.user_groups[username]
                         client.close()
                         self.send_user_list()
                     break
@@ -120,13 +147,48 @@ class Server:
                         decrypted = content
                     self.db.save_message(sender, recipient, decrypted)
                     self.send_private_message(msg_type, sender, recipient, decrypted)
+                elif msg_type == "group_message":
+                    group_name = recipient
+                    if username in self.aes_keys:
+                        try:
+                            decrypted = self.aes_keys[username].decrypt(bytes.fromhex(content)).decode()
+                        except Exception:
+                            decrypted = "[Decryption failed]"
+                    else:
+                        decrypted = content
+                    self.db.save_group_message(group_name, sender, decrypted)
+                    self.send_group_message(group_name, sender, decrypted)
+                elif msg_type == "create_group":
+                    group_name = content
+                    success, message = self.db.create_group(group_name, username)
+                    if success:
+                        self.send_group_list(username)
+                        client.send(create_msg("info", "server", username, f"Group '{group_name}' created successfully").encode())
+                    else:
+                        client.send(create_msg("error", "server", username, message).encode())
+                elif msg_type == "join_group":
+                    group_name = content
+                    success, message = self.db.join_group(group_name, username)
+                    if success:
+                        self.send_group_list(username)
+                        client.send(create_msg("info", "server", username, f"Joined group '{group_name}' successfully").encode())
+                    else:
+                        client.send(create_msg("error", "server", username, message).encode())
             except socket.error as err:
                 print(f"Error handling client {username}: {err}")
                 if username in self.clients:
                     del self.clients[username]
-                    if username in self.aes_keys:
-                        del self.aes_keys[username]
-                    self.send_user_list()
+                if client in self.user_sockets:
+                    del self.user_sockets[client]
+                if username in self.aes_keys:
+                    del self.aes_keys[username]
+                if username in self.user_groups:
+                    del self.user_groups[username]
+                try:
+                    client.close()
+                except:
+                    pass
+                self.send_user_list()
                 break
 
     def receive(self):
@@ -145,28 +207,49 @@ class Server:
             client, address = self.server.accept()
             print(f"New connection from {str(address)}")
             msg_type, sender, recipient, content = parse_msg(client)
+            print(f"Server received: {msg_type}, {sender}, {recipient}, {content}")
+
             if msg_type == "connect":
                 username = sender
                 if username not in self.clients:
                     self.clients[username] = client
+                    self.user_sockets[client] = username  # Add reverse mapping
                     print(f"User {username} connected")
                     # Send server public key to client
-                    client.send \
-                        (create_msg("connect", "server", username, self.rsa.export_public_key().decode()).encode())
+                    response_msg = create_msg("connect", "server", username, self.rsa.export_public_key().decode())
+                    print(f"Server sending: {response_msg}")
+                    client.send(response_msg.encode())
+
                     # Wait for AES key from client
+                    print("Waiting for AES key from client...")
                     aes_msg_type, aes_sender, aes_recipient, aes_content = parse_msg(client)
+                    print(f"Server received AES: {aes_msg_type}, {aes_sender}, {aes_recipient}, {aes_content}")
+
                     if aes_msg_type == "aes_key":
-                        encrypted_aes = bytes.fromhex(aes_content)
-                        aes_key = self.rsa.decrypt_with_private_key(encrypted_aes)
-                        self.aes_keys[username] = AESEncryption(aes_key)
+                        try:
+                            encrypted_aes = bytes.fromhex(aes_content)
+                            aes_key = self.rsa.decrypt_with_private_key(encrypted_aes)
+                            self.aes_keys[username] = AESEncryption(aes_key)
+                            print(f"AES key established for {username}")
+                        except Exception as e:
+                            print(f"Error setting up AES key: {e}")
+
                     self.send_user_list()
+                    self.send_group_list(username)
                     thread = threading.Thread(target=self.handle, args=(client, username))
                     thread.start()
                 else:
-                    client.send(create_msg("error", "server", username, "Username already taken").encode())
+                    error_msg = create_msg("error", "server", username, "Username already taken")
+                    print(f"Server sending error: {error_msg}")
+                    client.send(error_msg.encode())
                     client.close()
+            elif msg_type == "error":
+                print(f"Client sent error: {content}")
+                client.close()
             else:
-                client.send(create_msg("error", "server", "", "Invalid connection request").encode())
+                error_msg = create_msg("error", "server", "", "Invalid connection request")
+                print(f"Server sending error: {error_msg}")
+                client.send(error_msg.encode())
                 client.close()
 
     def main(self):

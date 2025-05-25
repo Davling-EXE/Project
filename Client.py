@@ -2,11 +2,12 @@
 from tkinter import *
 import socket
 from Protocol import *
-from tkinter import messagebox
+from tkinter import messagebox, simpledialog
 import threading
 from tkinter.scrolledtext import ScrolledText
 from database import Database
 from Encryption import RSAEncryption, AESEncryption
+import sys
 
 """Chat Client Application
 
@@ -68,11 +69,13 @@ class Client:
         self.pass_input = None     # Password input field
         self.username = ""         # Current user's username
         self.chat_windows = {}     # Active chat windows {username: ChatWindow}
+        self.group_windows = {}    # Active group chat windows {group_name: ChatWindow}
         self.main_window = None    # Main application window
         self.db = Database()       # Database connection
         self.rsa = RSAEncryption()
         self.aes = None
         self.peer_public_keys = {}
+        self.user_groups = []      # List of groups user belongs to
 
     def get_window_position(self, width, height):
         """Calculate window position to center it on screen.
@@ -130,20 +133,36 @@ class Client:
             self.server = socket.socket()
             self.server.connect((SERVER_IP, PORT))
             # Exchange public keys
-            self.server.send \
-                (create_msg("connect", self.username, "server", self.rsa.export_public_key().decode()).encode())
+            connect_msg = create_msg("connect", self.username, "server", self.rsa.export_public_key().decode())
+            print(f"Sending connect message: {connect_msg}")
+            self.server.send(connect_msg.encode())
+
+            print("Waiting for server response...")
             msg_type, sender, recipient, content = parse_msg(self.server)
+            print(f"Received: {msg_type}, {sender}, {recipient}, {content}")
+
             if msg_type == "connect":
                 # Receive server's public key and AES key encrypted for us
                 server_pub_key = content.encode()
                 # Generate AES key and send it encrypted to server
                 self.aes = AESEncryption()
                 encrypted_aes = self.rsa.encrypt_with_public_key(self.aes.key, server_pub_key)
-                self.server.send(create_msg("aes_key", self.username, "server", encrypted_aes.hex()).encode())
+                aes_msg = create_msg("aes_key", self.username, "server", encrypted_aes.hex())
+                print(f"Sending AES key message: {aes_msg}")
+                self.server.send(aes_msg.encode())
             elif msg_type == "error":
                 messagebox.showerror("Connection Error", content)
                 self.server.close()
                 return
+            elif msg_type == "disconnect":
+                messagebox.showerror("Connection Error", "Server disconnected")
+                self.server.close()
+                return
+            else:
+                messagebox.showerror("Connection Error", f"Unexpected message type: {msg_type}")
+                self.server.close()
+                return
+                
             messagebox.showinfo("Connected successfully", f"Connected as {self.username}")
             self.open_chat()
 
@@ -196,6 +215,36 @@ class Client:
                     except TclError:
                         # Widget was destroyed, ignore the error
                         pass
+                elif msg_type == "group_list":
+                    try:
+                        if content:
+                            self.user_groups = content.split(",")
+                        else:
+                            self.user_groups = []
+                        # Update group_box if it exists and is valid
+                        if hasattr(self, 'group_box') and self.group_box and self.group_box.winfo_exists():
+                            self.group_box.delete(0, END)
+                            for group in self.user_groups:
+                                self.group_box.insert(END, group)
+                        # If group_box doesn't exist yet, the groups will be populated when main window is created
+                    except TclError:
+                        # Widget was destroyed, ignore the error
+                        pass
+                elif msg_type == "group_message":
+                    group_name = recipient
+                    if self.aes:
+                        try:
+                            decrypted = self.aes.decrypt(bytes.fromhex(content)).decode()
+                        except Exception:
+                            decrypted = "[Decryption failed]"
+                    else:
+                        decrypted = content
+                    if group_name not in self.group_windows:
+                        self.open_group_chat_window(group_name)
+                    if group_name in self.group_windows and self.group_windows[group_name].window.winfo_exists():
+                        self.group_windows[group_name].add_message(f"{sender}: {decrypted}\n")
+                elif msg_type == "info":
+                    messagebox.showinfo("Info", content)
                 elif msg_type == "message":
                     try:
                         if sender not in self.chat_windows:
@@ -235,6 +284,21 @@ class Client:
         if recipient in self.chat_windows:
             self.chat_windows[recipient].add_message(f"Me: {message}\n")
 
+    def write_group(self, group_name, message):
+        """Send a message to a group chat.
+
+        Args:
+            group_name (str): Name of the group
+            message (str): Content of the message to send
+        """
+        if self.aes:
+            encrypted = self.aes.encrypt(message.encode()).hex()
+        else:
+            encrypted = message
+        self.server.send(create_msg("group_message", self.username, group_name, encrypted).encode())
+        if group_name in self.group_windows:
+            self.group_windows[group_name].add_message(f"Me: {message}\n")
+
     def exit_chat(self):
         """Clean up resources and exit the chat application.
 
@@ -256,6 +320,11 @@ class Client:
             for window in self.chat_windows.values():
                 if window.window.winfo_exists():
                     window.window.destroy()
+            
+            # Close all group chat windows
+            for window in self.group_windows.values():
+                if window.window.winfo_exists():
+                    window.window.destroy()
 
             # Close main window if it exists
             if self.main_window and self.main_window.winfo_exists():
@@ -264,7 +333,6 @@ class Client:
             # Close root window and exit program
             ROOT.quit()
             ROOT.destroy()
-            import sys
             sys.exit(0)
         except Exception as e:
             messagebox.showerror("Error", f"Error while closing: {str(e)}")
@@ -301,23 +369,23 @@ class Client:
             top_frame = Frame(self.window)
             top_frame.pack(fill=X, padx=15, pady=10)
 
-            exit_button = Button(top_frame, text="Close Chat", font=('Segoe UI', '10'),
+            exit_button = Button(top_frame, text="Close Chat", font=('Segoe UI', 10),
                                  command=self.exit_chat)
             exit_button.pack(side=RIGHT)
 
             # Chat display area
-            self.chat_box = ScrolledText(self.window, font=('Segoe UI', '10'), bd=2)
+            self.chat_box = ScrolledText(self.window, font=('Segoe UI', 10), bd=2)
             self.chat_box.pack(fill=BOTH, expand=True, padx=15, pady=10)
 
             # Input area
             bottom_frame = Frame(self.window)
             bottom_frame.pack(fill=X, padx=15, pady=(0, 15))
 
-            self.send_input = Entry(bottom_frame, font=('Segoe UI', '10'), bd=2)
+            self.send_input = Entry(bottom_frame, font=('Segoe UI', 10), bd=2)
             self.send_input.pack(side=LEFT, expand=True, fill=X, padx=(0, 10))
             self.send_input.bind('<Return>', self.send_message)
 
-            send_button = Button(bottom_frame, text="Send", font=('Segoe UI', '10'),
+            send_button = Button(bottom_frame, text="Send", font=('Segoe UI', 10),
                                  command=self.send_message)
             send_button.pack(side=RIGHT)
 
@@ -337,6 +405,73 @@ class Client:
                 del self.parent.chat_windows[self.recipient]
             self.window.destroy()
 
+    class GroupChatWindow:
+        """Represents a group chat window.
+
+        This class manages the UI and functionality of group chat windows,
+        including message display, sending messages, and window management.
+        """
+
+        def __init__(self, parent, username, group_name, write_callback):
+            """Initialize a new group chat window.
+
+            Args:
+                parent (Client): Reference to main client instance
+                username (str): Current user's username
+                group_name (str): Name of the group
+                write_callback (callable): Function to send group messages
+            """
+            self.parent = parent
+            self.window = Toplevel()
+            self.window.title(f"Group: {group_name}")
+            self.window.geometry(parent.get_window_position(500, 600))
+            self.window.minsize(400, 500)
+            self.group_name = group_name
+            self.write_callback = write_callback
+
+            # Configure window close protocol
+            self.window.protocol("WM_DELETE_WINDOW", self.exit_chat)
+
+            # Top frame for buttons
+            top_frame = Frame(self.window)
+            top_frame.pack(fill=X, padx=15, pady=10)
+
+            exit_button = Button(top_frame, text="Close Chat", font=('Segoe UI', 10),
+                                 command=self.exit_chat)
+            exit_button.pack(side=RIGHT)
+
+            # Chat display area
+            self.chat_box = ScrolledText(self.window, font=('Segoe UI', 10), bd=2)
+            self.chat_box.pack(fill=BOTH, expand=True, padx=15, pady=10)
+
+            # Input area
+            bottom_frame = Frame(self.window)
+            bottom_frame.pack(fill=X, padx=15, pady=(0, 15))
+
+            self.send_input = Entry(bottom_frame, font=('Segoe UI', 10), bd=2)
+            self.send_input.pack(side=LEFT, expand=True, fill=X, padx=(0, 10))
+            self.send_input.bind('<Return>', self.send_message)
+
+            send_button = Button(bottom_frame, text="Send", font=('Segoe UI', 10),
+                                 command=self.send_message)
+            send_button.pack(side=RIGHT)
+
+        def send_message(self, event=None):
+            message = self.send_input.get()
+            if message:
+                self.write_callback(self.group_name, message)
+                self.send_input.delete(0, END)
+
+        def add_message(self, message):
+            self.chat_box.insert(END, message)
+            self.chat_box.see(END)
+
+        def exit_chat(self):
+            """Closes the group chat window and removes it from the parent's group_windows dictionary"""
+            if self.group_name in self.parent.group_windows:
+                del self.parent.group_windows[self.group_name]
+            self.window.destroy()
+
     def open_chat_window(self, recipient):
         if recipient not in self.chat_windows:
             self.chat_windows[recipient] = self.ChatWindow(self, self.username, recipient, self.write)
@@ -345,6 +480,27 @@ class Client:
             for sender, content, timestamp in chat_history:
                 display_name = "Me" if sender == self.username else sender
                 self.chat_windows[recipient].add_message(f"{display_name} ({timestamp}): {content}\n")
+
+    def open_group_chat_window(self, group_name):
+        if group_name not in self.group_windows:
+            self.group_windows[group_name] = self.GroupChatWindow(self, self.username, group_name, self.write_group)
+            # Load group chat history
+            chat_history = self.db.get_group_chat_history(group_name)
+            for sender, content, timestamp in chat_history:
+                display_name = "Me" if sender == self.username else sender
+                self.group_windows[group_name].add_message(f"{display_name} ({timestamp}): {content}\n")
+
+    def create_group(self):
+        """Show dialog to create a new group"""
+        group_name = simpledialog.askstring("Create Group", "Enter group name:")
+        if group_name:
+            self.server.send(create_msg("create_group", self.username, "server", group_name).encode())
+
+    def join_group(self):
+        """Show dialog to join an existing group"""
+        group_name = simpledialog.askstring("Join Group", "Enter group name to join:")
+        if group_name:
+            self.server.send(create_msg("join_group", self.username, "server", group_name).encode())
 
     def open_chat(self):
         """
@@ -359,14 +515,45 @@ class Client:
         # Configure window close protocol
         self.main_window.protocol("WM_DELETE_WINDOW", self.exit_chat)
 
-        # Contacts list
-        Label(self.main_window, text="Online Users", font=('Segoe UI', '12', 'bold')).pack(pady=10)
-        self.user_box = Listbox(self.main_window, font=('Segoe UI', '10'), bd=2)
+        # Create notebook for tabs
+        from tkinter import ttk
+        notebook = ttk.Notebook(self.main_window)
+        notebook.pack(fill=BOTH, expand=True, padx=15, pady=10)
+
+        # Private chats tab
+        private_frame = Frame(notebook)
+        notebook.add(private_frame, text="Private Chats")
+        
+        Label(private_frame, text="Online Users", font=('Segoe UI', 12, 'bold')).pack(pady=10)
+        self.user_box = Listbox(private_frame, font=('Segoe UI', 10), bd=2)
         self.user_box.pack(fill=BOTH, expand=True, padx=15, pady=(0, 10))
         self.user_box.bind('<Double-Button-1>', lambda e: self.open_chat_window(self.user_box.get(ACTIVE)))
 
+        # Group chats tab
+        group_frame = Frame(notebook)
+        notebook.add(group_frame, text="Group Chats")
+        
+        Label(group_frame, text="My Groups", font=('Segoe UI', 12, 'bold')).pack(pady=10)
+        self.group_box = Listbox(group_frame, font=('Segoe UI', 10), bd=2)
+        self.group_box.pack(fill=BOTH, expand=True, padx=15, pady=(0, 10))
+        self.group_box.bind('<Double-Button-1>', lambda e: self.open_group_chat_window(self.group_box.get(ACTIVE)))
+        
+        # Populate group_box with existing groups if they were received before window creation
+        if hasattr(self, 'user_groups') and self.user_groups:
+            for group in self.user_groups:
+                self.group_box.insert(END, group)
+        
+        # Group action buttons
+        group_button_frame = Frame(group_frame)
+        group_button_frame.pack(fill=X, padx=15, pady=(0, 10))
+        
+        Button(group_button_frame, text="Create Group", font=('Segoe UI', 10),
+               command=self.create_group).pack(side=LEFT, padx=(0, 5))
+        Button(group_button_frame, text="Join Group", font=('Segoe UI', 10),
+               command=self.join_group).pack(side=LEFT)
+
         # Exit button
-        exit_button = Button(self.main_window, text="Exit Chat", font=('Segoe UI', '11'),
+        exit_button = Button(self.main_window, text="Exit Chat", font=('Segoe UI', 11),
                              command=self.exit_chat)
         exit_button.pack(pady=15)
 
@@ -386,27 +573,27 @@ class Client:
         frame.pack(expand=True, fill=BOTH)
 
         instruction_label = Label(frame, text="Welcome to Chat",
-                                  font=('Segoe UI', '11', 'bold'))
+                                  font=('Segoe UI', 11, 'bold'))
         instruction_label.pack(pady=10)
 
-        Label(frame, text="Username:", font=('Segoe UI', '10')).pack(anchor=W)
-        self.name_input = Entry(frame, font=('Segoe UI', '11'))
+        Label(frame, text="Username:", font=('Segoe UI', 10)).pack(anchor=W)
+        self.name_input = Entry(frame, font=('Segoe UI', 11))
         self.name_input.pack(fill=X, pady=(0, 10))
 
-        Label(frame, text="Password:", font=('Segoe UI', '10')).pack(anchor=W)
-        self.pass_input = Entry(frame, font=('Segoe UI', '11'), show='*')
+        Label(frame, text="Password:", font=('Segoe UI', 10)).pack(anchor=W)
+        self.pass_input = Entry(frame, font=('Segoe UI', 11), show='*')
         self.pass_input.pack(fill=X, pady=(0, 15))
 
         button_frame = Frame(frame)
         button_frame.pack(fill=X)
 
         login_button = Button(button_frame, text="Login", command=lambda: self.connect(True),
-                              font=('Segoe UI', '11'), bg='#4CAF50', fg='white',
+                              font=('Segoe UI', 11), bg='#4CAF50', fg='white',
                               width=12)
         login_button.pack(side=LEFT, padx=5)
 
         register_button = Button(button_frame, text="Register", command=lambda: self.connect(False),
-                                 font=('Segoe UI', '11'), bg='#2196F3', fg='white',
+                                 font=('Segoe UI', 11), bg='#2196F3', fg='white',
                                  width=12)
         register_button.pack(side=RIGHT, padx=5)
 
