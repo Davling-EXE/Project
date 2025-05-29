@@ -7,9 +7,7 @@ import threading
 from tkinter.scrolledtext import ScrolledText
 from database import Database
 from Encryption import RSAEncryption, AESEncryption
-from Call import VoiceCall
 import sys
-import base64
 
 """Chat Client Application
 
@@ -78,7 +76,6 @@ class Client:
         self.aes = None
         self.peer_public_keys = {}
         self.user_groups = []      # List of groups user belongs to
-        self.voice_call = None     # Voice call manager instance
 
     def get_window_position(self, width, height):
         """Calculate window position to center it on screen.
@@ -135,10 +132,6 @@ class Client:
             self.username = username
             self.server = socket.socket()
             self.server.connect((SERVER_IP, PORT))
-            
-            # Initialize voice call manager
-            self.voice_call = VoiceCall(self)
-            
             # Exchange public keys
             connect_msg = create_msg("connect", self.username, "server", self.rsa.export_public_key().decode())
             print(f"Sending connect message: {connect_msg}")
@@ -169,7 +162,7 @@ class Client:
                 messagebox.showerror("Connection Error", f"Unexpected message type: {msg_type}")
                 self.server.close()
                 return
-                
+
             messagebox.showinfo("Connected successfully", f"Connected as {self.username}")
             self.open_chat()
 
@@ -219,8 +212,6 @@ class Client:
                             for user in users:
                                 if user != self.username:
                                     self.user_box.insert(END, user)
-                            # Update voice call user list as well
-                            self.update_voice_user_list()
                     except TclError:
                         # Widget was destroyed, ignore the error
                         pass
@@ -266,47 +257,6 @@ class Client:
                             del self.chat_windows[sender]
                 elif msg_type == "connect" and sender == "server":
                     messagebox.showinfo("Server Message", content)
-                elif msg_type == "call_request":
-                    # Handle incoming call request
-                    if self.voice_call:
-                        self.voice_call.show_incoming_call_dialog(sender)
-                elif msg_type == "call_accept":
-                    # Handle call acceptance
-                    if self.voice_call and self.voice_call.is_calling:
-                        self.voice_call.is_calling = False
-                        self.voice_call.is_in_call = True
-                        self.voice_call.show_call_window(sender)
-                        self.voice_call.start_audio()
-                elif msg_type == "call_decline":
-                    # Handle call decline
-                    if self.voice_call and self.voice_call.is_calling:
-                        messagebox.showinfo("Call Declined", f"{sender} declined your call")
-                        self.voice_call.reset_call_state()
-                        if self.voice_call.call_window:
-                            self.voice_call.call_window.destroy()
-                            self.voice_call.call_window = None
-                elif msg_type == "call_end":
-                    # Handle call end
-                    if self.voice_call and (self.voice_call.is_calling or self.voice_call.is_in_call):
-                        messagebox.showinfo("Call Ended", f"{sender} ended the call")
-                        self.voice_call.stop_audio()
-                        self.voice_call.reset_call_state()
-                        if self.voice_call.call_window:
-                            self.voice_call.call_window.destroy()
-                            self.voice_call.call_window = None
-                elif msg_type == "voice_data":
-                    # Handle incoming voice data with decryption
-                    if self.voice_call:
-                        # Decrypt voice data before passing to VoiceCall
-                        if self.aes:
-                            try:
-                                decrypted_content = self.aes.decrypt(bytes.fromhex(content)).decode()
-                            except Exception as e:
-                                print(f"Voice data decryption error: {e}")
-                                continue
-                        else:
-                            decrypted_content = content
-                        self.voice_call.handle_voice_data(sender, decrypted_content)
 
             except socket.error as err:
                 messagebox.showerror("Error", str(err))
@@ -348,23 +298,6 @@ class Client:
         self.server.send(create_msg("group_message", self.username, group_name, encrypted).encode())
         if group_name in self.group_windows:
             self.group_windows[group_name].add_message(f"Me: {message}\n")
-    
-    def send_voice_data(self, recipient, audio_data):
-        """Send encrypted voice data to a recipient.
-        
-        Args:
-            recipient (str): Username of the recipient
-            audio_data (bytes): Raw audio data to send
-        """
-        # First encode audio data as base64
-        encoded_data = base64.b64encode(audio_data).decode()
-        
-        if self.aes:
-            encrypted = self.aes.encrypt(encoded_data.encode()).hex()
-        else:
-            encrypted = encoded_data
-        msg = create_msg("voice_data", self.username, recipient, encrypted)
-        self.server.send(msg.encode())
 
     def exit_chat(self):
         """Clean up resources and exit the chat application.
@@ -387,15 +320,11 @@ class Client:
             for window in self.chat_windows.values():
                 if window.window.winfo_exists():
                     window.window.destroy()
-            
+
             # Close all group chat windows
             for window in self.group_windows.values():
                 if window.window.winfo_exists():
                     window.window.destroy()
-            
-            # Clean up voice call resources
-            if self.voice_call:
-                self.voice_call.cleanup()
 
             # Close main window if it exists
             if self.main_window and self.main_window.winfo_exists():
@@ -594,7 +523,7 @@ class Client:
         # Private chats tab
         private_frame = Frame(notebook)
         notebook.add(private_frame, text="Private Chats")
-        
+
         Label(private_frame, text="Online Users", font=('Segoe UI', 12, 'bold')).pack(pady=10)
         self.user_box = Listbox(private_frame, font=('Segoe UI', 10), bd=2)
         self.user_box.pack(fill=BOTH, expand=True, padx=15, pady=(0, 10))
@@ -603,86 +532,33 @@ class Client:
         # Group chats tab
         group_frame = Frame(notebook)
         notebook.add(group_frame, text="Group Chats")
-        
+
         Label(group_frame, text="My Groups", font=('Segoe UI', 12, 'bold')).pack(pady=10)
         self.group_box = Listbox(group_frame, font=('Segoe UI', 10), bd=2)
         self.group_box.pack(fill=BOTH, expand=True, padx=15, pady=(0, 10))
         self.group_box.bind('<Double-Button-1>', lambda e: self.open_group_chat_window(self.group_box.get(ACTIVE)))
-        
+
         # Populate group_box with existing groups if they were received before window creation
         if hasattr(self, 'user_groups') and self.user_groups:
             for group in self.user_groups:
                 self.group_box.insert(END, group)
-        
+
         # Group action buttons
         group_button_frame = Frame(group_frame)
         group_button_frame.pack(fill=X, padx=15, pady=(0, 10))
-        
+
         Button(group_button_frame, text="Create Group", font=('Segoe UI', 10),
                command=self.create_group).pack(side=LEFT, padx=(0, 5))
         Button(group_button_frame, text="Join Group", font=('Segoe UI', 10),
                command=self.join_group).pack(side=LEFT)
-        
-        # Voice calls tab
-        voice_frame = Frame(notebook)
-        notebook.add(voice_frame, text="Voice Calls")
-        
-        Label(voice_frame, text="Voice Chat", font=('Segoe UI', 12, 'bold')).pack(pady=10)
-        Label(voice_frame, text="Select a user to start a voice call", font=('Segoe UI', 10)).pack(pady=5)
-        
-        # Voice call user list
-        self.voice_user_box = Listbox(voice_frame, font=('Segoe UI', 10), bd=2)
-        self.voice_user_box.pack(fill=BOTH, expand=True, padx=15, pady=(10, 10))
-        
-        # Voice call buttons
-        voice_button_frame = Frame(voice_frame)
-        voice_button_frame.pack(fill=X, padx=15, pady=(0, 10))
-        
-        Button(voice_button_frame, text="📞 Start Call", font=('Segoe UI', 11),
-               command=self.start_voice_call, bg='#4CAF50', fg='white',
-               width=15).pack(pady=5)
-               
-        # Call status label
-        self.call_status_label = Label(voice_frame, text="Ready to call", 
-                                      font=('Segoe UI', 10), fg='gray')
-        self.call_status_label.pack(pady=5)
 
         # Exit button
         exit_button = Button(self.main_window, text="Exit Chat", font=('Segoe UI', 11),
                              command=self.exit_chat)
         exit_button.pack(pady=15)
 
-        # Update voice call user list with current online users
-        self.update_voice_user_list()
-        
         receive_thread = threading.Thread(target=self.receive)
         receive_thread.start()
-        
-    def start_voice_call(self):
-        """
-        Start a voice call with the selected user.
-        """
-        try:
-            selected_user = self.voice_user_box.get(ACTIVE)
-            if selected_user and self.voice_call:
-                self.voice_call.initiate_call(selected_user)
-                self.call_status_label.config(text=f"Calling {selected_user}...", fg='orange')
-            else:
-                messagebox.showwarning("No Selection", "Please select a user to call")
-        except:
-            messagebox.showwarning("No Selection", "Please select a user to call")
-            
-    def update_voice_user_list(self):
-        """
-        Update the voice call user list with current online users.
-        """
-        if hasattr(self, 'voice_user_box') and self.voice_user_box and self.voice_user_box.winfo_exists():
-            # Get current users from the main user box
-            if self.user_box and self.user_box.winfo_exists():
-                self.voice_user_box.delete(0, END)
-                for i in range(self.user_box.size()):
-                    user = self.user_box.get(i)
-                    self.voice_user_box.insert(END, user)
 
     def main(self):
         """Initialize and run the main application.

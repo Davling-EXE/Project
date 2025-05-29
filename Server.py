@@ -48,7 +48,6 @@ class Server:
         self.server = None                # Main server socket
         self.clients = {}                # Active clients {username: socket}
         self.user_sockets = {}           # Reverse lookup {socket: username}
-        self.active_calls = {}           # Active voice calls {caller: recipient}
         self.db = Database()             # Database connection
         self.rsa = RSAEncryption()
         self.aes_keys = {}
@@ -159,61 +158,6 @@ class Server:
                         decrypted = content
                     self.db.save_group_message(group_name, sender, decrypted)
                     self.send_group_message(group_name, sender, decrypted)
-                elif msg_type == "call_request":
-                    # Handle voice call request
-                    if recipient in self.clients:
-                        # Check if recipient is already in a call
-                        if recipient in self.active_calls.values() or recipient in self.active_calls:
-                            error_msg = create_msg("error", "server", sender, f"{recipient} is already in a call")
-                            client.send(error_msg.encode())
-                        else:
-                            # Forward call request to recipient
-                            call_msg = create_msg("call_request", sender, recipient, "")
-                            self.clients[recipient].send(call_msg.encode())
-                    else:
-                        error_msg = create_msg("error", "server", sender, f"{recipient} is not online")
-                        client.send(error_msg.encode())
-                elif msg_type == "call_accept":
-                    # Handle call acceptance
-                    if recipient in self.clients:
-                        # Establish call connection
-                        self.active_calls[recipient] = sender
-                        self.active_calls[sender] = recipient
-                        
-                        # Notify both parties
-                        accept_msg = create_msg("call_accept", sender, recipient, "")
-                        self.clients[recipient].send(accept_msg.encode())
-                    else:
-                        error_msg = create_msg("error", "server", sender, f"{recipient} is not online")
-                        client.send(error_msg.encode())
-                elif msg_type == "call_decline":
-                    # Handle call decline
-                    if recipient in self.clients:
-                        decline_msg = create_msg("call_decline", sender, recipient, "")
-                        self.clients[recipient].send(decline_msg.encode())
-                elif msg_type == "call_end":
-                    # Handle call termination
-                    if sender in self.active_calls:
-                        call_partner = self.active_calls[sender]
-                        # Remove call from active calls
-                        del self.active_calls[sender]
-                        if call_partner in self.active_calls:
-                            del self.active_calls[call_partner]
-                        
-                        # Notify call partner
-                        if call_partner in self.clients:
-                            end_msg = create_msg("call_end", sender, call_partner, "")
-                            self.clients[call_partner].send(end_msg.encode())
-                elif msg_type == "voice_data":
-                    # Handle voice data transmission
-                    if sender in self.active_calls and recipient == self.active_calls[sender]:
-                        if recipient in self.clients:
-                            # Forward voice data to call partner
-                            voice_msg = create_msg("voice_data", sender, recipient, content)
-                            self.clients[recipient].send(voice_msg.encode())
-                    else:
-                        error_msg = create_msg("error", "server", sender, "No active call with this user")
-                        client.send(error_msg.encode())
                 elif msg_type == "create_group":
                     group_name = content
                     success, message = self.db.create_group(group_name, username)
@@ -240,17 +184,6 @@ class Server:
                     del self.aes_keys[username]
                 if username in self.user_groups:
                     del self.user_groups[username]
-                # End any active calls
-                if username in self.active_calls:
-                    call_partner = self.active_calls[username]
-                    del self.active_calls[username]
-                    if call_partner in self.active_calls:
-                        del self.active_calls[call_partner]
-                    
-                    # Notify call partner that call ended
-                    if call_partner in self.clients:
-                        end_msg = create_msg("call_end", username, call_partner, "")
-                        self.clients[call_partner].send(end_msg.encode())
                 try:
                     client.close()
                 except:

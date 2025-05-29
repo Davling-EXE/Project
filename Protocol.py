@@ -13,11 +13,6 @@ Message Types:
 - join_group: Request to join an existing group
 - user_list: Server broadcast of online users
 - group_list: Server broadcast of user's groups
-- call_request: Voice call initiation request
-- call_accept: Accept incoming voice call
-- call_decline: Decline incoming voice call
-- call_end: End active voice call
-- voice_data: Encrypted audio data transmission
 - error: Error message from server
 
 Example Messages:
@@ -28,11 +23,6 @@ Example Messages:
 - Join group: "0032|join_group|alice|server|general|"
 - User list update: "0044|user_list|server|alice|bob,charlie,david|"
 - Group list update: "0048|group_list|server|alice|general,work,friends|"
-- Call request: "0029|call_request|alice|bob||"
-- Call accept: "0027|call_accept|bob|alice||"
-- Call decline: "0028|call_decline|bob|alice||"
-- Call end: "0024|call_end|alice|bob||"
-- Voice data: "0156|voice_data|alice|bob|base64_encoded_encrypted_audio_data|"
 """
 
 LENGTH_FIELD_SIZE = 4  # Number of digits for the zero-filled length field
@@ -52,11 +42,6 @@ def create_msg(msg_type, sender, recipient, content):
             - join_group: Join group request
             - user_list: Online users list
             - group_list: User's groups list
-            - call_request: Voice call initiation
-            - call_accept: Accept voice call
-            - call_decline: Decline voice call
-            - call_end: End voice call
-            - voice_data: Audio data transmission
             - error: Error message
         sender (str): Username of message sender
         recipient (str): Username of intended recipient or group name
@@ -86,7 +71,7 @@ def parse_msg(my_socket):
 
     Returns:
         tuple: A 4-tuple containing:
-            - msg_type (str): Message type (connect/disconnect/message/group_message/create_group/join_group/user_list/group_list/call_request/call_accept/call_decline/call_end/voice_data/error)
+            - msg_type (str): Message type (connect/disconnect/message/group_message/create_group/join_group/user_list/group_list/error)
             - sender (str): Username of message sender
             - recipient (str): Username of intended recipient or group name
             - content (str): Message content

@@ -113,7 +113,7 @@ class Database:
                                    (
                                        username
                                    )
-                                   )
+                                       )
                                    """)
 
         self._local.cursor.execute("""
@@ -156,7 +156,7 @@ class Database:
                                        group_name,
                                        username
                                    )
-                                   )
+                                       )
                                    """)
 
         self._local.cursor.execute("""
@@ -198,7 +198,7 @@ class Database:
                                    (
                                        username
                                    )
-                                   )
+                                       )
                                    """)
         self._local.conn.commit()
 
@@ -315,7 +315,7 @@ class Database:
             )
             if not self._local.cursor.fetchone():
                 return False, "Group does not exist"
-            
+
             with self._lock:
                 self._local.cursor.execute(
                     "INSERT INTO group_members (group_name, username) VALUES (?, ?)",
