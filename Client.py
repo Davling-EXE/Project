@@ -8,7 +8,6 @@ from tkinter.scrolledtext import ScrolledText
 from database import Database
 from Encryption import RSAEncryption, AESEncryption
 from Call import VoiceCall # Import VoiceCall class
-import pyaudio # Required for VoiceCall
 import sys
 
 """Chat Client Application
@@ -269,25 +268,29 @@ class Client:
                     if self.current_voice_call:
                         # Already in a call, send busy or ignore
                         self.server.send(create_msg("call_reject", self.username, call_initiator, "busy").encode()) # Inform initiator you're busy
-                        if call_initiator not in self.chat_windows: self.open_chat_window(call_initiator)
-                        self.chat_windows[call_initiator].add_message(f"Incoming call from {call_initiator} while you're busy.\n")
+                        # if call_initiator not in self.chat_windows: self.open_chat_window(call_initiator)
+                        # self.chat_windows[call_initiator].add_message(f"Incoming call from {call_initiator} while you're busy.\n")
+                        print(f"Incoming call from {call_initiator} while busy.") # Log to console instead
                     elif messagebox.askyesno("Incoming Call", f"{call_initiator} is calling you. Accept?"):
                         self.call_aes_key = bytes.fromhex(proposed_call_aes_key_hex)
                         self.current_voice_call = VoiceCall(self.server, self.username, call_initiator, SERVER_IP, PORT, False, self.call_aes_key)
                         self.server.send(create_msg("call_accept", self.username, call_initiator, "").encode()) # Accept, AES key is implicit
                         self.server.send(create_msg("udp_info", self.username, "server", str(self.current_voice_call.udp_port)).encode())
-                        if call_initiator not in self.chat_windows: self.open_chat_window(call_initiator)
-                        self.chat_windows[call_initiator].add_message(f"Call accepted with {call_initiator}. Waiting for connection details...\n")
+                        # if call_initiator not in self.chat_windows: self.open_chat_window(call_initiator)
+                        # self.chat_windows[call_initiator].add_message(f"Call accepted with {call_initiator}. Waiting for connection details...\n")
+                        print(f"Call accepted with {call_initiator}. Waiting for connection details...") # Log to console instead
                     else:
                         self.server.send(create_msg("call_reject", self.username, call_initiator, "rejected").encode())
-                        if call_initiator not in self.chat_windows: self.open_chat_window(call_initiator)
-                        self.chat_windows[call_initiator].add_message(f"Call from {call_initiator} rejected.\n")
+                        # if call_initiator not in self.chat_windows: self.open_chat_window(call_initiator)
+                        # self.chat_windows[call_initiator].add_message(f"Call from {call_initiator} rejected.\n")
+                        print(f"Call from {call_initiator} rejected.") # Log to console instead
                 elif msg_type == "call_accept": # Your previously initiated call was accepted
                     accepted_by = sender
                     if self.current_voice_call and self.current_voice_call.recipient_username == accepted_by:
                         self.server.send(create_msg("udp_info", self.username, "server", str(self.current_voice_call.udp_port)).encode())
-                        if accepted_by not in self.chat_windows: self.open_chat_window(accepted_by)
-                        self.chat_windows[accepted_by].add_message(f"{accepted_by} accepted your call. Waiting for connection details...\n")
+                        # if accepted_by not in self.chat_windows: self.open_chat_window(accepted_by)
+                        # self.chat_windows[accepted_by].add_message(f"{accepted_by} accepted your call. Waiting for connection details...\n")
+                        print(f"{accepted_by} accepted your call. Waiting for connection details...") # Log to console instead
                     else:
                         # This case should ideally not happen if state is managed well
                         print(f"Received call_accept from {accepted_by}, but no matching pending call found or wrong recipient.")
@@ -295,17 +298,20 @@ class Client:
                     rejected_by = sender
                     reason = content # "busy" or "rejected"
                     if self.current_voice_call and self.current_voice_call.recipient_username == rejected_by:
-                        if rejected_by not in self.chat_windows: self.open_chat_window(rejected_by)
-                        self.chat_windows[rejected_by].add_message(f"Call to {rejected_by} was not established: {reason}.\n")
+                        # if rejected_by not in self.chat_windows: self.open_chat_window(rejected_by)
+                        # self.chat_windows[rejected_by].add_message(f"Call to {rejected_by} was not established: {reason}.\n")
+                        print(f"Call to {rejected_by} was not established: {reason}.") # Log to console instead
                         self.end_current_call_ui(notify_server=False) # Server already handled or peer rejected
                     else: # Call was rejected by someone else or no active call UI
-                        if rejected_by not in self.chat_windows: self.open_chat_window(rejected_by)
-                        self.chat_windows[rejected_by].add_message(f"{rejected_by} could not be reached or rejected the call: {reason}.\n")
+                        # if rejected_by not in self.chat_windows: self.open_chat_window(rejected_by)
+                        # self.chat_windows[rejected_by].add_message(f"{rejected_by} could not be reached or rejected the call: {reason}.\n")
+                        print(f"{rejected_by} could not be reached or rejected the call: {reason}.") # Log to console instead
                 elif msg_type == "call_busy": # Server informs that the callee is busy
                     busy_user = content.split(' ')[0] # Assuming content is like "UserX is already in a call."
                     if self.current_voice_call and self.current_voice_call.recipient_username == busy_user:
-                        if busy_user not in self.chat_windows: self.open_chat_window(busy_user)
-                        self.chat_windows[busy_user].add_message(f"Could not call {busy_user}. User is busy.\n")
+                        # if busy_user not in self.chat_windows: self.open_chat_window(busy_user)
+                        # self.chat_windows[busy_user].add_message(f"Could not call {busy_user}. User is busy.\n")
+                        print(f"Could not call {busy_user}. User is busy.") # Log to console instead
                         self.end_current_call_ui(notify_server=False)
                 elif msg_type == "peer_udp_info":
                     # content is "ip:port"
@@ -314,17 +320,35 @@ class Client:
                         self.current_voice_call.set_peer_udp_address(peer_ip, int(peer_port))
                         self.current_voice_call.start_call()
                         peer_user = self.current_voice_call.recipient_username
-                        if peer_user not in self.chat_windows: self.open_chat_window(peer_user)
-                        self.chat_windows[peer_user].add_message(f"Voice call with {peer_user} connected!\n")
-                        self.chat_windows[peer_user].add_end_call_button(self, peer_user)
+                        # if peer_user not in self.chat_windows: self.open_chat_window(peer_user)
+                        # self.chat_windows[peer_user].add_message(f"Voice call with {peer_user} connected!\n")
+                        # self.chat_windows[peer_user].add_end_call_button(self, peer_user)
+                        print(f"Voice call with {peer_user} connected!") # Log to console instead
+                        # Consider adding a visual indicator in the Voice Chat tab or main window for active call and end call button there
+                        if hasattr(self, 'voice_chat_box') and self.voice_chat_box.winfo_exists():
+                            for i in range(self.voice_chat_box.size()):
+                                if peer_user in self.voice_chat_box.get(i):
+                                    self.voice_chat_box.delete(i)
+                                    self.voice_chat_box.insert(i, f"{peer_user} (In Call)")
+                                    break
+                            else: # If not found (e.g. receiver initiated)
+                                self.voice_chat_box.insert(END, f"{peer_user} (In Call)")
+                            if hasattr(self, 'end_call_button'): self.end_call_button.config(state=NORMAL)
                 elif msg_type == "call_end":
                     ended_by = sender
                     reason = content # e.g., "Disconnected" or empty
                     if self.current_voice_call and (self.current_voice_call.recipient_username == ended_by or self.current_voice_call.username == ended_by):
                         peer_user = self.current_voice_call.recipient_username if self.current_voice_call.username == ended_by else self.current_voice_call.username
-                        if peer_user not in self.chat_windows: self.open_chat_window(peer_user)
-                        self.chat_windows[peer_user].add_message(f"Call with {ended_by} ended. Reason: {reason if reason else 'Normal termination'}\n")
+                        # if peer_user not in self.chat_windows: self.open_chat_window(peer_user)
+                        # self.chat_windows[peer_user].add_message(f"Call with {ended_by} ended. Reason: {reason if reason else 'Normal termination'}\n")
+                        print(f"Call with {ended_by} ended. Reason: {reason if reason else 'Normal termination'}") # Log to console instead
                         self.end_current_call_ui(notify_server=False) # Server already knows or initiated
+                        if hasattr(self, 'voice_chat_box') and self.voice_chat_box.winfo_exists():
+                            for i in range(self.voice_chat_box.size()):
+                                if peer_user in self.voice_chat_box.get(i):
+                                    self.voice_chat_box.delete(i)
+                                    break
+
 
             except socket.error as err:
                 messagebox.showerror("Error", str(err))
@@ -607,11 +631,29 @@ class Client:
         Label(private_frame, text="Online Users", font=('Segoe UI', 12, 'bold')).pack(pady=10)
         self.user_box = Listbox(private_frame, font=('Segoe UI', 10), bd=2)
         self.user_box.pack(fill=BOTH, expand=True, padx=15, pady=(0, 10))
-        self.user_box.bind('<Double-Button-1>', self.initiate_call_prompt_from_list) # Changed binding
+        self.user_box.bind('<Double-Button-1>', self.open_chat_from_list) # Changed binding
 
         # Group chats tab
         group_frame = Frame(notebook)
         notebook.add(group_frame, text="Group Chats")
+
+        self.voice_chat_tab = Frame(notebook) # Corrected from self.notebook to notebook
+        notebook.add(self.voice_chat_tab, text='Voice Chat') # Corrected from self.notebook to notebook
+        Label(self.voice_chat_tab, text="Active Voice Chats:").pack(pady=5)
+        self.voice_chat_box = Listbox(self.voice_chat_tab, height=10, width=50)
+        self.voice_chat_box.pack(pady=5, padx=10, fill=BOTH, expand=True)
+        
+        button_frame = Frame(self.voice_chat_tab)
+        button_frame.pack(pady=5)
+
+        start_call_button = Button(button_frame, text="Start New Call", command=self.prompt_initiate_call_from_tab)
+        start_call_button.pack(side=LEFT, padx=5)
+
+        self.end_call_button = Button(button_frame, text="End Current Call", command=self.handle_end_call_button, state=DISABLED)
+        self.end_call_button.pack(side=LEFT, padx=5)
+
+        # Add binding for voice_chat_box later if needed
+        # self.voice_chat_box.bind('<Double-Button-1>', self.some_voice_chat_action)
 
         Label(group_frame, text="My Groups", font=('Segoe UI', 12, 'bold')).pack(pady=10)
         self.group_box = Listbox(group_frame, font=('Segoe UI', 10), bd=2)
@@ -640,15 +682,21 @@ class Client:
         receive_thread = threading.Thread(target=self.receive, daemon=True)
         receive_thread.start()
 
-    def initiate_call_prompt_from_list(self, event=None):
-        if not self.user_box:
+    def initiate_call_prompt_from_list(self):
+        selected_index = self.user_box.curselection()
+        if not selected_index:
+            messagebox.showwarning("Selection Error", "Please select a user to call.")
             return
-        selected_indices = self.user_box.curselection()
-        if not selected_indices:
-            # messagebox.showinfo("Call User", "Please select a user to call.") # Can be annoying
-            return
-        recipient_username = self.user_box.get(selected_indices[0])
+        recipient_username = self.user_box.get(selected_index[0])
         self.initiate_call_to_user(recipient_username)
+
+    def handle_end_call_button(self):
+        if self.current_voice_call:
+            # No need to ask for confirmation, just end the current call
+            self.end_current_call_ui(notify_server=True)
+        else:
+            messagebox.showinfo("Info", "No active call to end.")
+            if hasattr(self, 'end_call_button'): self.end_call_button.config(state=DISABLED)
 
     def initiate_call_to_user(self, recipient_username):
         if recipient_username == self.username:
@@ -664,37 +712,69 @@ class Client:
             self.current_voice_call = VoiceCall(self.server, self.username, recipient_username, SERVER_IP, PORT, True, self.call_aes_key)
             # Send call request with the new AES key for the call
             self.server.send(create_msg("call_request", self.username, recipient_username, self.call_aes_key.hex()).encode())
-            if recipient_username not in self.chat_windows:
-                self.open_chat_window(recipient_username)
-            self.chat_windows[recipient_username].add_message(f"Calling {recipient_username}... Waiting for response.\n")
+            # if recipient_username not in self.chat_windows:
+            #     self.open_chat_window(recipient_username)
+            # self.chat_windows[recipient_username].add_message(f"Calling {recipient_username}... Waiting for response.\n")
+            print(f"Calling {recipient_username}... Waiting for response.") # Log to console instead
+            if hasattr(self, 'voice_chat_box') and self.voice_chat_box.winfo_exists():
+                # Remove if already exists (e.g. previous call attempt)
+                for i in range(self.voice_chat_box.size()):
+                    if recipient_username in self.voice_chat_box.get(i):
+                        self.voice_chat_box.delete(i)
+                        break
+                self.voice_chat_box.insert(END, f"{recipient_username} (Calling...)")
 
-    def end_current_call_ui(self, notify_server=True, peer=None):
+    def prompt_initiate_call_from_tab(self):
+        recipient_username = simpledialog.askstring("Start Voice Call", "Enter username to call:", parent=self.main_window)
+        if recipient_username:
+            self.initiate_call_to_user(recipient_username)
+
+    def open_chat_from_list(self, event=None):
+        if not self.user_box:
+            return
+        selected_indices = self.user_box.curselection()
+        if not selected_indices:
+            return
+        recipient_username = self.user_box.get(selected_indices[0])
+        if recipient_username == self.username:
+            # Optionally, show an error or just do nothing
+            return
+        self.open_chat_window(recipient_username)
+
+    def end_current_call_ui(self, notify_server=True):
         if self.current_voice_call:
-            actual_peer = peer if peer else self.current_voice_call.recipient_username
-            # If peer is None, it might be that the call object knows the recipient.
-            if not actual_peer and self.current_voice_call.is_caller:
-                 actual_peer = self.current_voice_call.recipient_username
-            elif not actual_peer and not self.current_voice_call.is_caller:
-                 actual_peer = self.current_voice_call.username # This is wrong, should be the other party
-                 # This part needs careful handling of who the peer is. For now, assume recipient_username is always the target.
-                 actual_peer = self.current_voice_call.recipient_username
+            recipient_username = self.current_voice_call.recipient_username
+            print(f"Ending call UI for {recipient_username}. Current voice call object: {self.current_voice_call}")
+            if notify_server:
+                # Only send call_end if the call was actually established or in a state where server needs notification
+                # For calls that never connected (e.g. user not found), server might handle it differently
+                # or this client action might be redundant if server already sent an error/reject.
+                # Consider if server needs a specific message for 'call attempt failed client side'.
+                self.server.send(create_msg("call_end", self.username, recipient_username, "Disconnected by user").encode())
+            
+            self.current_voice_call.end_call() # stop streams and threads
+            
+            # Remove from voice_chat_box
+            if hasattr(self, 'voice_chat_box') and self.voice_chat_box.winfo_exists():
+                try:
+                    items = list(self.voice_chat_box.get(0, END))
+                    for i, item_text in enumerate(items):
+                        # Match recipient_username, potentially with status like (Calling...) or (In Call)
+                        if recipient_username in item_text.split(' ')[0]: 
+                            self.voice_chat_box.delete(i)
+                            break
+                except TclError: # Widget might be destroyed
+                    pass
 
-            if notify_server and actual_peer:
-                self.server.send(create_msg("call_end", self.username, actual_peer, "").encode())
+            self.current_voice_call = None # Crucial: Clear the current call object
+            self.call_aes_key = None # Clear AES key for the ended call
+            if hasattr(self, 'end_call_button'): self.end_call_button.config(state=DISABLED)
             
-            self.current_voice_call.end_call() # This stops threads and closes sockets in VoiceCall
-            
-            if actual_peer in self.chat_windows:
-                # Check if window exists before trying to modify it
-                if self.chat_windows[actual_peer].window.winfo_exists():
-                    self.chat_windows[actual_peer].add_message(f"Call with {actual_peer} ended.\n")
-                    self.chat_windows[actual_peer].remove_end_call_button()
-            
-            self.current_voice_call = None
-            self.call_aes_key = None
-            print("Current call ended and cleaned up.")
+            # Re-enable call initiation buttons if they were disabled
+            # (This part might need more specific logic depending on UI setup)
+            print(f"Call UI ended and current_voice_call reset for {recipient_username}.")
         else:
-            print("No active call to end or already ended.")
+            print("end_current_call_ui called but no current_voice_call object exists.")
 
     def main(self):
         """Initialize and run the main application.
