@@ -333,7 +333,7 @@ class Client:
                                     break
                             else: # If not found (e.g. receiver initiated)
                                 self.voice_chat_box.insert(END, f"{peer_user} (In Call)")
-                            if hasattr(self, 'end_call_button'): self.end_call_button.config(state=NORMAL)
+                            if hasattr(self, 'end_call_button'): self.end_call_button.config(state="normal")
                 elif msg_type == "call_end":
                     ended_by = sender
                     reason = content # e.g., "Disconnected" or empty
@@ -461,27 +461,27 @@ class Client:
 
             # Top frame for buttons
             top_frame = Frame(self.window)
-            top_frame.pack(fill=X, padx=15, pady=10)
+            top_frame.pack(fill="x", padx=15, pady=10)
 
             exit_button = Button(top_frame, text="Close Chat", font=('Segoe UI', 10),
                                  command=self.exit_chat)
-            exit_button.pack(side=RIGHT)
+            exit_button.pack(side="right")
 
             # Chat display area
             self.chat_box = ScrolledText(self.window, font=('Segoe UI', 10), bd=2)
-            self.chat_box.pack(fill=BOTH, expand=True, padx=15, pady=10)
+            self.chat_box.pack(fill="both", expand=True, padx=15, pady=10)
 
             # Input area
             bottom_frame = Frame(self.window)
-            bottom_frame.pack(fill=X, padx=15, pady=(0, 15))
+            bottom_frame.pack(fill="x", padx=15, pady=(0, 15))
 
             self.send_input = Entry(bottom_frame, font=('Segoe UI', 10), bd=2)
-            self.send_input.pack(side=LEFT, expand=True, fill=X, padx=(0, 10))
+            self.send_input.pack(side="left", expand=True, fill="x", padx=(0, 10))
             self.send_input.bind('<Return>', self.send_message)
 
             send_button = Button(bottom_frame, text="Send", font=('Segoe UI', 10),
                                  command=self.send_message)
-            send_button.pack(side=RIGHT)
+            send_button.pack(side="right")
 
         def send_message(self, event=None):
             message = self.send_input.get()
@@ -502,7 +502,7 @@ class Client:
         def add_end_call_button(self, client_ref, peer_username):
             if not hasattr(self, 'end_call_button') or not self.end_call_button or not self.end_call_button.winfo_exists():
                 self.end_call_button = Button(self.window, text="End Call", command=lambda: client_ref.end_current_call_ui(notify_server=True, peer=peer_username))
-                self.end_call_button.pack(side=BOTTOM, pady=5)
+                self.end_call_button.pack(side="bottom", pady=5)
 
         def remove_end_call_button(self):
             if hasattr(self, 'end_call_button') and self.end_call_button and self.end_call_button.winfo_exists():
@@ -538,27 +538,27 @@ class Client:
 
             # Top frame for buttons
             top_frame = Frame(self.window)
-            top_frame.pack(fill=X, padx=15, pady=10)
+            top_frame.pack(fill="x", padx=15, pady=10)
 
             exit_button = Button(top_frame, text="Close Chat", font=('Segoe UI', 10),
                                  command=self.exit_chat)
-            exit_button.pack(side=RIGHT)
+            exit_button.pack(side="right")
 
             # Chat display area
             self.chat_box = ScrolledText(self.window, font=('Segoe UI', 10), bd=2)
-            self.chat_box.pack(fill=BOTH, expand=True, padx=15, pady=10)
+            self.chat_box.pack(fill="both", expand=True, padx=15, pady=10)
 
             # Input area
             bottom_frame = Frame(self.window)
-            bottom_frame.pack(fill=X, padx=15, pady=(0, 15))
+            bottom_frame.pack(fill="x", padx=15, pady=(0, 15))
 
             self.send_input = Entry(bottom_frame, font=('Segoe UI', 10), bd=2)
-            self.send_input.pack(side=LEFT, expand=True, fill=X, padx=(0, 10))
+            self.send_input.pack(side="left", expand=True, fill="x", padx=(0, 10))
             self.send_input.bind('<Return>', self.send_message)
 
             send_button = Button(bottom_frame, text="Send", font=('Segoe UI', 10),
                                  command=self.send_message)
-            send_button.pack(side=RIGHT)
+            send_button.pack(side="right")
 
         def send_message(self, event=None):
             message = self.send_input.get()
@@ -622,7 +622,7 @@ class Client:
         # Create notebook for tabs
         from tkinter import ttk
         notebook = ttk.Notebook(self.main_window)
-        notebook.pack(fill=BOTH, expand=True, padx=15, pady=10)
+        notebook.pack(fill="both", expand=True, padx=15, pady=10)
 
         # Private chats tab
         private_frame = Frame(notebook)
@@ -630,7 +630,7 @@ class Client:
 
         Label(private_frame, text="Online Users", font=('Segoe UI', 12, 'bold')).pack(pady=10)
         self.user_box = Listbox(private_frame, font=('Segoe UI', 10), bd=2)
-        self.user_box.pack(fill=BOTH, expand=True, padx=15, pady=(0, 10))
+        self.user_box.pack(fill="both", expand=True, padx=15, pady=(0, 10))
         self.user_box.bind('<Double-Button-1>', self.open_chat_from_list) # Changed binding
 
         # Group chats tab
@@ -641,23 +641,23 @@ class Client:
         notebook.add(self.voice_chat_tab, text='Voice Chat') # Corrected from self.notebook to notebook
         Label(self.voice_chat_tab, text="Active Voice Chats:").pack(pady=5)
         self.voice_chat_box = Listbox(self.voice_chat_tab, height=10, width=50)
-        self.voice_chat_box.pack(pady=5, padx=10, fill=BOTH, expand=True)
+        self.voice_chat_box.pack(pady=5, padx=10, fill="both", expand=True)
         
         button_frame = Frame(self.voice_chat_tab)
         button_frame.pack(pady=5)
 
         start_call_button = Button(button_frame, text="Start New Call", command=self.prompt_initiate_call_from_tab)
-        start_call_button.pack(side=LEFT, padx=5)
+        start_call_button.pack(side="left", padx=5)
 
-        self.end_call_button = Button(button_frame, text="End Current Call", command=self.handle_end_call_button, state=DISABLED)
-        self.end_call_button.pack(side=LEFT, padx=5)
+        self.end_call_button = Button(button_frame, text="End Current Call", command=self.handle_end_call_button, state="disabled")
+        self.end_call_button.pack(side="left", padx=5)
 
         # Add binding for voice_chat_box later if needed
         # self.voice_chat_box.bind('<Double-Button-1>', self.some_voice_chat_action)
 
         Label(group_frame, text="My Groups", font=('Segoe UI', 12, 'bold')).pack(pady=10)
         self.group_box = Listbox(group_frame, font=('Segoe UI', 10), bd=2)
-        self.group_box.pack(fill=BOTH, expand=True, padx=15, pady=(0, 10))
+        self.group_box.pack(fill="both", expand=True, padx=15, pady=(0, 10))
         self.group_box.bind('<Double-Button-1>', lambda e: self.open_group_chat_window(self.group_box.get(ACTIVE)))
 
         # Populate group_box with existing groups if they were received before window creation
@@ -667,12 +667,12 @@ class Client:
 
         # Group action buttons
         group_button_frame = Frame(group_frame)
-        group_button_frame.pack(fill=X, padx=15, pady=(0, 10))
+        group_button_frame.pack(fill="x", padx=15, pady=(0, 10))
 
         Button(group_button_frame, text="Create Group", font=('Segoe UI', 10),
-               command=self.create_group).pack(side=LEFT, padx=(0, 5))
+               command=self.create_group).pack(side="left", padx=(0, 5))
         Button(group_button_frame, text="Join Group", font=('Segoe UI', 10),
-               command=self.join_group).pack(side=LEFT)
+               command=self.join_group).pack(side="left")
 
         # Exit button
         exit_button = Button(self.main_window, text="Exit Chat", font=('Segoe UI', 11),
@@ -696,7 +696,7 @@ class Client:
             self.end_current_call_ui(notify_server=True)
         else:
             messagebox.showinfo("Info", "No active call to end.")
-            if hasattr(self, 'end_call_button'): self.end_call_button.config(state=DISABLED)
+            if hasattr(self, 'end_call_button'): self.end_call_button.config(state="disabled")
 
     def initiate_call_to_user(self, recipient_username):
         if recipient_username == self.username:
@@ -768,7 +768,7 @@ class Client:
 
             self.current_voice_call = None # Crucial: Clear the current call object
             self.call_aes_key = None # Clear AES key for the ended call
-            if hasattr(self, 'end_call_button'): self.end_call_button.config(state=DISABLED)
+            if hasattr(self, 'end_call_button'): self.end_call_button.config(state="disabled")
             
             # Re-enable call initiation buttons if they were disabled
             # (This part might need more specific logic depending on UI setup)
@@ -786,32 +786,32 @@ class Client:
         ROOT.geometry(self.get_window_position(300, 250))
         ROOT.minsize(250, 250)
         frame = Frame(ROOT, padx=20, pady=20)
-        frame.pack(expand=True, fill=BOTH)
+        frame.pack(expand=True, fill="both")
 
         instruction_label = Label(frame, text="Welcome to Chat",
                                   font=('Segoe UI', 11, 'bold'))
         instruction_label.pack(pady=10)
 
-        Label(frame, text="Username:", font=('Segoe UI', 10)).pack(anchor=W)
+        Label(frame, text="Username:", font=('Segoe UI', 10)).pack(anchor="w")
         self.name_input = Entry(frame, font=('Segoe UI', 11))
-        self.name_input.pack(fill=X, pady=(0, 10))
+        self.name_input.pack(fill="x", pady=(0, 10))
 
-        Label(frame, text="Password:", font=('Segoe UI', 10)).pack(anchor=W)
+        Label(frame, text="Password:", font=('Segoe UI', 10)).pack(anchor="w")
         self.pass_input = Entry(frame, font=('Segoe UI', 11), show='*')
-        self.pass_input.pack(fill=X, pady=(0, 15))
+        self.pass_input.pack(fill="x", pady=(0, 15))
 
         button_frame = Frame(frame)
-        button_frame.pack(fill=X)
+        button_frame.pack(fill="x")
 
         login_button = Button(button_frame, text="Login", command=lambda: self.connect(True),
                               font=('Segoe UI', 11), bg='#4CAF50', fg='white',
                               width=12)
-        login_button.pack(side=LEFT, padx=5)
+        login_button.pack(side="left", padx=5)
 
         register_button = Button(button_frame, text="Register", command=lambda: self.connect(False),
                                  font=('Segoe UI', 11), bg='#2196F3', fg='white',
                                  width=12)
-        register_button.pack(side=RIGHT, padx=5)
+        register_button.pack(side="right", padx=5)
 
         ROOT.mainloop()
 

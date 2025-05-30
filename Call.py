@@ -1,7 +1,6 @@
 import socket
 import threading
 import pyaudio
-from Protocol import create_msg, parse_msg # Assuming similar protocol usage for signaling
 from Encryption import AESEncryption # For encrypting voice data
 
 # Audio settings
@@ -27,9 +26,12 @@ class VoiceCall:
         self.udp_port = self.udp_socket.getsockname()[1]
 
         self.audio = pyaudio.PyAudio()
-        self.stream = None
+        self.stream = None # Input stream
+        self.stream_out = None # Output stream
         self.is_active = False
         self.peer_udp_address = None # (ip, port) of the other user, relayed by server
+        self.send_thread = None
+        self.receive_thread = None
 
     def start_call(self):
         """Initiates the call or prepares to receive a call."""
@@ -43,8 +45,10 @@ class VoiceCall:
         # Example: "udp_info|username|recipient_username|udp_port"
         # self.client_socket.send(create_msg("udp_info", self.username, self.recipient_username, str(self.udp_port)).encode())
 
-        threading.Thread(target=self._send_audio, daemon=True).start()
-        threading.Thread(target=self._receive_audio, daemon=True).start()
+        self.send_thread = threading.Thread(target=self._send_audio, daemon=True)
+        self.send_thread.start()
+        self.receive_thread = threading.Thread(target=self._receive_audio, daemon=True)
+        self.receive_thread.start()
         print(f"Voice call initiated between {self.username} and {self.recipient_username} on UDP port {self.udp_port}")
 
     def _send_audio(self):
@@ -94,14 +98,47 @@ class VoiceCall:
         print(f"Peer UDP address set to {self.peer_udp_address}")
 
     def end_call(self):
-        self.is_active = False
-        # Notify server and other client about call termination
-        # Example: self.client_socket.send(create_msg("end_call", self.username, self.recipient_username, "").encode())
+        print(f"Attempting to end call between {self.username} and {self.recipient_username}...")
+        self.is_active = False # Signal threads to stop
+
+        # Wait for threads to finish their cleanup
+        if self.send_thread and self.send_thread.is_alive():
+            print("Waiting for send_thread to join...")
+            self.send_thread.join(timeout=2.0) # Wait for 2 seconds
+            if self.send_thread.is_alive():
+                print("Warning: send_thread did not join in time.")
+        self.send_thread = None
+        
+        if self.receive_thread and self.receive_thread.is_alive():
+            print("Waiting for receive_thread to join...")
+            self.receive_thread.join(timeout=2.0) # Wait for 2 seconds
+            if self.receive_thread.is_alive():
+                print("Warning: receive_thread did not join in time.")
+        self.receive_thread = None
+
+        # Close UDP socket
         if self.udp_socket:
-            self.udp_socket.close()
+            try:
+                self.udp_socket.close()
+                print("UDP socket closed.")
+            except Exception as e:
+                print(f"Error closing UDP socket: {e}")
+            self.udp_socket = None # Prevent further use
+
+        # Terminate PyAudio
         if self.audio:
-            self.audio.terminate()
-        print(f"Call between {self.username} and {self.recipient_username} ended.")
+            try:
+                self.audio.terminate()
+                print("PyAudio terminated.")
+            except Exception as e:
+                print(f"Error terminating PyAudio: {e}")
+            self.audio = None # Prevent further use
+        
+        # Nullify stream references as they are closed within threads
+        self.stream = None
+        self.stream_out = None
+
+        print(f"Call between {self.username} and {self.recipient_username} ended procedures complete.")
 
 # Example usage (conceptual, will be integrated into Client.py)
 if __name__ == '__main__':
