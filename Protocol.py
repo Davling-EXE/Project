@@ -14,6 +14,13 @@ Message Types:
 - user_list: Server broadcast of online users
 - group_list: Server broadcast of user's groups
 - error: Error message from server
+- call_request: Client A requests to call Client B
+- call_accept: Client B accepts call from Client A
+- call_reject: Client B rejects call from Client A
+- call_end: Client ends the call
+- call_busy: Server informs Client A that Client B is busy
+- udp_info: Client sends its UDP port to server for relaying. Content: "<udp_port>"
+- peer_udp_info: Server relays peer's UDP (IP, port) to client. Content: "<peer_ip>:<peer_udp_port>"
 
 Example Messages:
 - Connection request: "0021|connect|alice|server||"
@@ -23,6 +30,12 @@ Example Messages:
 - Join group: "0032|join_group|alice|server|general|"
 - User list update: "0044|user_list|server|alice|bob,charlie,david|"
 - Group list update: "0048|group_list|server|alice|general,work,friends|"
+- Call request: "0030|call_request|alice|bob|shared_aes_key_hex|" (shared_aes_key_hex is for encrypting the call)
+- Call accept: "0024|call_accept|bob|alice||" (AES key already exchanged or implied by request)
+- Call reject: "0024|call_reject|bob|alice||"
+- Call end: "0021|call_end|alice|bob||"
+- UDP info: "0028|udp_info|alice|server|50000|" (Alice's UDP port for this call)
+- Peer UDP info: "0035|peer_udp_info|server|alice|192.168.1.5:50001|" (Bob's UDP address for this call)
 """
 
 LENGTH_FIELD_SIZE = 4  # Number of digits for the zero-filled length field
@@ -43,6 +56,13 @@ def create_msg(msg_type, sender, recipient, content):
             - user_list: Online users list
             - group_list: User's groups list
             - error: Error message
+            - call_request: Initiate a voice call
+            - call_accept: Accept a voice call
+            - call_reject: Reject a voice call
+            - call_end: Terminate a voice call
+            - call_busy: Target user is busy
+            - udp_info: Send UDP port information for voice call
+            - peer_udp_info: Receive peer's UDP information for voice call
         sender (str): Username of message sender
         recipient (str): Username of intended recipient or group name
         content (str): Message payload
@@ -71,7 +91,7 @@ def parse_msg(my_socket):
 
     Returns:
         tuple: A 4-tuple containing:
-            - msg_type (str): Message type (connect/disconnect/message/group_message/create_group/join_group/user_list/group_list/error)
+            - msg_type (str): Message type (connect/disconnect/message/group_message/create_group/join_group/user_list/group_list/error/call_request/call_accept/call_reject/call_end/call_busy/udp_info/peer_udp_info)
             - sender (str): Username of message sender
             - recipient (str): Username of intended recipient or group name
             - content (str): Message content

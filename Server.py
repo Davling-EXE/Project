@@ -31,7 +31,8 @@ a custom protocol for structured message handling.
 
 # Network configuration
 IP = '0.0.0.0'        # Listen on all available interfaces
-PORT = 8820          # Server port number
+PORT = 8820          # Server TCP port number for signaling
+VOICE_PORT = 8821    # Server UDP port number for voice data (not directly used by server for routing, but good to define)
 MAX_PACKET = 1024    # Maximum size of received packets
 
 
@@ -41,17 +42,24 @@ class Server:
         Initialize the server with empty client dictionaries and database connection.
 
         Attributes:
-        clients: Dictionary mapping usernames to socket connections
-        user_sockets: Dictionary mapping socket objects to usernames
+        clients: Dictionary mapping usernames to socket connections (TCP)
+        user_sockets: Dictionary mapping socket objects to usernames (TCP)
         db: Database instance for persistent storage
+        rsa: RSAEncryption instance for key exchange
+        aes_keys: Dictionary mapping usernames to their AES keys for TCP messages
+        user_groups: Cache of user groups
+        active_calls: Dictionary to track active calls {caller: recipient} or {(user1, user2): call_details}
+        user_udp_info: Dictionary to store UDP address {(ip, port)} for users in a call {username: (ip, port)}
         """
-        self.server = None                # Main server socket
-        self.clients = {}                # Active clients {username: socket}
-        self.user_sockets = {}           # Reverse lookup {socket: username}
+        self.server = None                # Main server TCP socket
+        self.clients = {}                # Active clients {username: tcp_socket}
+        self.user_sockets = {}           # Reverse lookup {tcp_socket: username}
         self.db = Database()             # Database connection
         self.rsa = RSAEncryption()
-        self.aes_keys = {}
+        self.aes_keys = {}               # {username: AESEncryption_instance_for_TCP}
         self.user_groups = {}            # Cache of user groups {username: [group_names]}
+        self.active_calls = {}           # {(caller, recipient): {'caller_udp': (ip, port), 'recipient_udp': (ip, port), 'aes_key': bytes}}
+        self.user_in_call = {}           # {username: (peer_username, role ('caller'/'recipient'))} to quickly check if user is busy
 
     def send_user_list(self):
         """
@@ -174,8 +182,128 @@ class Server:
                         client.send(create_msg("info", "server", username, f"Joined group '{group_name}' successfully").encode())
                     else:
                         client.send(create_msg("error", "server", username, message).encode())
+
+                # Voice Call Handling
+                elif msg_type == "call_request":
+                    # sender is caller, recipient is callee, content is AES key for the call (hex)
+                    callee = recipient
+                    call_aes_key_hex = content
+                    print(f"Call request from {sender} to {callee}")
+                    if callee in self.clients:
+                        if callee in self.user_in_call:
+                            client.send(create_msg("call_busy", "server", sender, f"{callee} is already in a call.").encode())
+                        else:
+                            # Forward call request to callee
+                            self.clients[callee].send(create_msg("call_request", sender, callee, call_aes_key_hex).encode())
+                            # Tentatively mark users as engaging in a call setup
+                            # self.user_in_call[sender] = (callee, 'caller_pending')
+                            # self.user_in_call[callee] = (sender, 'recipient_pending')
+                    else:
+                        client.send(create_msg("error", "server", sender, f"User {callee} is not online.").encode())
+
+                elif msg_type == "call_accept":
+                    # sender is callee, recipient is original caller
+                    caller = recipient
+                    print(f"Call accept from {sender} to {caller}")
+                    if caller in self.clients:
+                        # AES key was sent by caller in initial request, receiver just accepts
+                        # Store call information
+                        call_key = tuple(sorted((caller, sender)))
+                        self.active_calls[call_key] = {'caller': caller, 'recipient': sender, 'caller_udp': None, 'recipient_udp': None}
+                        self.user_in_call[caller] = (sender, 'caller')
+                        self.user_in_call[sender] = (caller, 'recipient')
+                        self.clients[caller].send(create_msg("call_accept", sender, caller, "").encode())
+                        print(f"Active call established between {caller} and {sender}")
+                    else:
+                        # Caller might have disconnected
+                        self.clients[sender].send(create_msg("error", "server", sender, f"User {caller} is no longer online.").encode())
+                        # Clean up if receiver was marked pending
+                        # if sender in self.user_in_call and self.user_in_call[sender][1] == 'recipient_pending':
+                        #     del self.user_in_call[sender]
+                        # if caller in self.user_in_call and self.user_in_call[caller][1] == 'caller_pending':
+                        #     del self.user_in_call[caller]
+
+                elif msg_type == "call_reject":
+                    caller = recipient
+                    print(f"Call reject from {sender} to {caller}")
+                    if caller in self.clients:
+                        self.clients[caller].send(create_msg("call_reject", sender, caller, "").encode())
+                    # Clean up pending state
+                    # if sender in self.user_in_call and self.user_in_call[sender][1] == 'recipient_pending':
+                    #     del self.user_in_call[sender]
+                    # if caller in self.user_in_call and self.user_in_call[caller][1] == 'caller_pending':
+                    #     del self.user_in_call[caller]
+
+                elif msg_type == "udp_info":
+                    # sender is the user sending their UDP port, recipient is 'server', content is UDP port
+                    user_udp_port = content
+                    peer_username = None
+                    user_role = None
+                    call_key_tuple = None
+
+                    if sender in self.user_in_call:
+                        peer_username, user_role = self.user_in_call[sender]
+                        call_key_tuple = tuple(sorted((sender, peer_username)))
+
+                    if call_key_tuple and call_key_tuple in self.active_calls and peer_username in self.clients:
+                        client_ip = client.getpeername()[0]
+                        user_udp_address = (client_ip, int(user_udp_port))
+                        print(f"Received UDP info from {sender} ({user_role}): {user_udp_address}")
+
+                        current_call_info = self.active_calls[call_key_tuple]
+                        if user_role == 'caller':
+                            current_call_info['caller_udp'] = user_udp_address
+                        elif user_role == 'recipient':
+                            current_call_info['recipient_udp'] = user_udp_address
+                        else: # Should not happen if user_in_call is managed correctly
+                            print(f"Error: {sender} has unknown role {user_role} in call with {peer_username}")
+                            continue
+
+                        # Check if both UDP infos are received
+                        if current_call_info['caller_udp'] and current_call_info['recipient_udp']:
+                            caller_name = current_call_info['caller']
+                            recipient_name = current_call_info['recipient']
+
+                            caller_udp_addr_str = f"{current_call_info['recipient_udp'][0]}:{current_call_info['recipient_udp'][1]}"
+                            recipient_udp_addr_str = f"{current_call_info['caller_udp'][0]}:{current_call_info['caller_udp'][1]}"
+
+                            # Send peer UDP info to both clients
+                            self.clients[caller_name].send(create_msg("peer_udp_info", "server", caller_name, caller_udp_addr_str).encode())
+                            self.clients[recipient_name].send(create_msg("peer_udp_info", "server", recipient_name, recipient_udp_addr_str).encode())
+                            print(f"Relayed UDP info for call between {caller_name} and {recipient_name}")
+                    else:
+                        print(f"UDP info from {sender} but no active call or peer not found.")
+
+                elif msg_type == "call_end":
+                    # sender is the one ending the call, recipient is the other party
+                    peer = recipient
+                    print(f"Call end request from {sender} to {peer}")
+                    call_key = tuple(sorted((sender, peer)))
+                    if call_key in self.active_calls:
+                        del self.active_calls[call_key]
+                    if sender in self.user_in_call:
+                        del self.user_in_call[sender]
+                    if peer in self.user_in_call:
+                        del self.user_in_call[peer]
+
+                    if peer in self.clients:
+                        self.clients[peer].send(create_msg("call_end", sender, peer, "").encode())
+                    print(f"Call between {sender} and {peer} ended.")
+
             except socket.error as err:
                 print(f"Error handling client {username}: {err}")
+                # Clean up call state if user disconnects abruptly
+                if username in self.user_in_call:
+                    peer, _ = self.user_in_call[username]
+                    del self.user_in_call[username]
+                    call_key = tuple(sorted((username, peer)))
+                    if call_key in self.active_calls:
+                        del self.active_calls[call_key]
+                    if peer in self.user_in_call:
+                        del self.user_in_call[peer]
+                    if peer in self.clients:
+                         self.clients[peer].send(create_msg("call_end", username, peer, "Disconnected").encode())
+
                 if username in self.clients:
                     del self.clients[username]
                 if client in self.user_sockets:
