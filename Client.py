@@ -72,7 +72,7 @@ class Client:
         self.chat_windows = {}     # Active chat windows {username: ChatWindow}
         self.group_windows = {}    # Active group chat windows {group_name: ChatWindow}
         self.main_window = None    # Main application window
-        self.db = Database()       # Database connection
+        # self.db = Database()       # Database connection removed, server will handle auth
         self.rsa = RSAEncryption()
         self.aes = None # AES for TCP messages with server
         self.peer_public_keys = {}
@@ -123,48 +123,42 @@ class Client:
                 messagebox.showerror("Error", "Please enter both username and password")
                 return
 
-            if is_login:
-                success, message = self.db.authenticate_user(username, password)
-            else:
-                success, message = self.db.register_user(username, password)
-
-            if not success:
-                messagebox.showerror("Authentication Error", message)
-                return
-
-            self.username = username
             self.server = socket.socket()
             self.server.connect((SERVER_IP, PORT))
-            # Exchange public keys
-            connect_msg = create_msg("connect", self.username, "server", self.rsa.export_public_key().decode())
-            print(f"Sending connect message: {connect_msg}")
-            self.server.send(connect_msg.encode())
 
-            print("Waiting for server response...")
-            msg_type, sender, recipient, content = parse_msg(self.server)
-            print(f"Received: {msg_type}, {sender}, {recipient}, {content}")
+            # Send login or register request to server
+            auth_type = "login" if is_login else "register"
+            # Content format: password###public_key
+            auth_content = f"{password}###{self.rsa.export_public_key().decode()}"
+            auth_msg = create_msg(auth_type, username, "server", auth_content)
+            self.server.send(auth_msg.encode())
 
-            if msg_type == "connect":
-                # Receive server's public key and AES key encrypted for us
-                server_pub_key = content.encode()
-                # Generate AES key and send it encrypted to server
-                self.aes = AESEncryption()
-                encrypted_aes = self.rsa.encrypt_with_public_key(self.aes.key, server_pub_key)
-                aes_msg = create_msg("aes_key", self.username, "server", encrypted_aes.hex())
-                print(f"Sending AES key message: {aes_msg}")
-                self.server.send(aes_msg.encode())
-            elif msg_type == "error":
-                messagebox.showerror("Connection Error", content)
+            # Wait for authentication response
+            auth_response_type, _, _, auth_response_content = parse_msg(self.server)
+
+            if auth_response_type not in ["login_success", "register_success"]:
+                messagebox.showerror("Authentication Error", auth_response_content)
                 self.server.close()
+                self.server = None
                 return
-            elif msg_type == "disconnect":
-                messagebox.showerror("Connection Error", "Server disconnected")
-                self.server.close()
-                return
-            else:
-                messagebox.showerror("Connection Error", f"Unexpected message type: {msg_type}")
-                self.server.close()
-                return
+            
+            # Proceed with connection if auth is successful
+            self.username = username
+            # The server's response to successful auth (auth_response_content) contains its public key.
+            # We use this to encrypt and send our AES key.
+            
+            server_pub_key_str = auth_response_content
+            server_pub_key = server_pub_key_str.encode()
+
+            # Generate AES key and send it encrypted to server
+            self.aes = AESEncryption() # Creates a new random AES key
+            encrypted_aes_key = self.rsa.encrypt_with_public_key(self.aes.key, server_pub_key)
+            aes_msg = create_msg("aes_key", self.username, "server", encrypted_aes_key.hex())
+            print(f"Sending AES key message: {aes_msg}")
+            self.server.send(aes_msg.encode())
+
+            # At this point, the server will process the AES key and then start sending user lists, group lists, etc.
+            # The main receive loop will handle these subsequent messages.
 
             messagebox.showinfo("Connected successfully", f"Connected as {self.username}")
             self.open_chat()
