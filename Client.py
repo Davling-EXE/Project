@@ -5,7 +5,6 @@ from Protocol import *
 from tkinter import messagebox, simpledialog
 import threading
 from tkinter.scrolledtext import ScrolledText
-from database import Database
 from Encryption import RSAEncryption, AESEncryption
 from Call import VoiceCall # Import VoiceCall class
 import sys
@@ -63,6 +62,10 @@ class Client:
         main_window: Main application window
         db: Database instance for persistent storage
         """
+        self.group_box = None
+        self.voice_chat_box = None
+        self.end_call_button = None
+        self.voice_chat_tab = None
         self.server = None          # Socket connection to server
         self.user_box = None       # Listbox for displaying online users
         self.top = None            # Reference to top-level window
@@ -72,7 +75,6 @@ class Client:
         self.chat_windows = {}     # Active chat windows {username: ChatWindow}
         self.group_windows = {}    # Active group chat windows {group_name: ChatWindow}
         self.main_window = None    # Main application window
-        # self.db = Database()       # Database connection removed, server will handle auth
         self.rsa = RSAEncryption()
         self.aes = None # AES for TCP messages with server
         self.peer_public_keys = {}
@@ -442,6 +444,7 @@ class Client:
                 recipient (str): Chat partner's username
                 write_callback (callable): Function to send messages
             """
+            self.end_call_button = None
             self.parent = parent
             self.window = Toplevel()
             self.window.title(f"Chat with {recipient}")

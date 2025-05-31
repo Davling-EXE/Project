@@ -339,7 +339,7 @@ class Server:
                 if username in self.user_groups:
                     del self.user_groups[username]
                 try:
-                    client.close()
+                    client.close(None)
                 except:
                     pass
                 self.send_user_list()
