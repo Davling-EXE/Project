@@ -358,7 +358,7 @@ class Server:
                 msg_type, username, _, content = parse_msg(client)
                 # content is expected to be "password|client_public_key_string"
                 
-                password, client_public_key_str = content.split('###', 1)
+                password, client_public_key_str = content.split('-', 1)
                 self.client_public_keys[username] = client_public_key_str # Store client's public key
 
                 auth_success = False

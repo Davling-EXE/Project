@@ -128,8 +128,8 @@ class Client:
 
             # Send login or register request to server
             auth_type = "login" if is_login else "register"
-            # Content format: password###public_key
-            auth_content = f"{password}###{self.rsa.export_public_key().decode()}"
+            # Content format: password-public_key
+            auth_content = f"{password}-{self.rsa.export_public_key().decode()}"
             auth_msg = create_msg(auth_type, username, "server", auth_content)
             self.server.send(auth_msg.encode())
 
