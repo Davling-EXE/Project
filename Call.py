@@ -11,6 +11,7 @@ CHUNK = 1024
 
 class VoiceCall:
     def __init__(self, client_socket, username, recipient_username, server_ip, server_port, is_caller, aes_key):
+        self.peer_udp_address = None
         self.client_socket = client_socket # TCP socket for signaling with server
         self.username = username
         self.recipient_username = recipient_username

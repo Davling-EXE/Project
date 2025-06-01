@@ -88,10 +88,24 @@ class Server:
             if username in self.aes_keys: # Ensure client is fully connected
                 self.clients[username].send(create_msg("group_list", "server", username, group_list).encode())
 
+    def handle_chat_history_request(self, requester, recipient):
+        """Handle request for chat history between two users"""
+        if requester in self.aes_keys:
+            chat_history = self.db.get_chat_history(requester, recipient)
+            history_data = '\n'.join([f"{sender}|{content}|{timestamp}" for sender, content, timestamp in chat_history])
+            encrypted = self.aes_keys[requester].encrypt(history_data.encode()).hex()
+            self.clients[requester].send(create_msg("chat_history", "server", recipient, encrypted).encode())
+
+    def handle_group_chat_history_request(self, requester, group_name):
+        """Handle request for group chat history"""
+        if requester in self.aes_keys:
+            chat_history = self.db.get_group_chat_history(group_name)
+            history_data = '\n'.join([f"{sender}|{content}|{timestamp}" for sender, content, timestamp in chat_history])
+            encrypted = self.aes_keys[requester].encrypt(history_data.encode()).hex()
+            self.clients[requester].send(create_msg("group_chat_history", "server", group_name, encrypted).encode())
+
     def send_group_message(self, group_name, sender, content):
-        """
-        Broadcast a message to all members of a group who are currently online.
-        """
+        """Broadcast a message to all members of a group who are currently online."""
         group_members = self.db.get_group_members(group_name)
         for member in group_members:
             if member in self.clients and member != sender:
@@ -149,6 +163,12 @@ class Server:
                         client.close()
                         self.send_user_list()
                     break
+                elif msg_type == "get_chat_history":
+                    self.handle_chat_history_request(sender, recipient)
+                
+                elif msg_type == "get_group_chat_history":
+                    self.handle_group_chat_history_request(sender, recipient)
+
                 elif msg_type == "aes_key": # Client sends its AES key encrypted with server's public key
                     if username in self.client_public_keys:
                         try:

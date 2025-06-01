@@ -184,7 +184,33 @@ class Client:
         while True:
             try:
                 msg_type, sender, recipient, content = parse_msg(self.server)
-                if msg_type == "message":
+                if msg_type == "chat_history":
+                    if self.aes:
+                        try:
+                            history_data = self.aes.decrypt(bytes.fromhex(content)).decode()
+                            for history_item in history_data.split('\n'):
+                                if history_item:
+                                    sender_name, msg_content, timestamp = history_item.split('|')
+                                    display_name = "Me" if sender_name == self.username else sender_name
+                                    if recipient in self.chat_windows:
+                                        self.chat_windows[recipient].add_message(f"{display_name} ({timestamp}): {msg_content}\n")
+                        except Exception:
+                            print("Failed to process chat history")
+
+                elif msg_type == "group_chat_history":
+                    if self.aes:
+                        try:
+                            history_data = self.aes.decrypt(bytes.fromhex(content)).decode()
+                            for history_item in history_data.split('\n'):
+                                if history_item:
+                                    sender_name, msg_content, timestamp = history_item.split('|')
+                                    display_name = "Me" if sender_name == self.username else sender_name
+                                    if recipient in self.group_windows:
+                                        self.group_windows[recipient].add_message(f"{display_name} ({timestamp}): {msg_content}\n")
+                        except Exception:
+                            print("Failed to process group chat history")
+
+                elif msg_type == "message":
                     if self.aes:
                         try:
                             decrypted = self.aes.decrypt(bytes.fromhex(content)).decode()
@@ -572,20 +598,16 @@ class Client:
     def open_chat_window(self, recipient):
         if recipient not in self.chat_windows:
             self.chat_windows[recipient] = self.ChatWindow(self, self.username, recipient, self.write)
-            # Load chat history
-            chat_history = self.db.get_chat_history(self.username, recipient)
-            for sender, content, timestamp in chat_history:
-                display_name = "Me" if sender == self.username else sender
-                self.chat_windows[recipient].add_message(f"{display_name} ({timestamp}): {content}\n")
+            # Request chat history from server
+            if self.aes:
+                self.server.send(create_msg("get_chat_history", self.username, recipient, "").encode())
 
     def open_group_chat_window(self, group_name):
         if group_name not in self.group_windows:
             self.group_windows[group_name] = self.GroupChatWindow(self, self.username, group_name, self.write_group)
-            # Load group chat history
-            chat_history = self.db.get_group_chat_history(group_name)
-            for sender, content, timestamp in chat_history:
-                display_name = "Me" if sender == self.username else sender
-                self.group_windows[group_name].add_message(f"{display_name} ({timestamp}): {content}\n")
+            # Request group chat history from server
+            if self.aes:
+                self.server.send(create_msg("get_group_chat_history", self.username, group_name, "").encode())
 
     def create_group(self):
         """Show dialog to create a new group"""
