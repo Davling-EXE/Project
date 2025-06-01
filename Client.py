@@ -271,10 +271,10 @@ class Client:
                         self.call_aes_key = bytes.fromhex(proposed_call_aes_key_hex)
                         self.current_voice_call = VoiceCall(self.server, self.username, call_initiator, SERVER_IP, PORT, False, self.call_aes_key)
                         self.server.send(create_msg("call_accept", self.username, call_initiator, "").encode()) # Accept, AES key is implicit
-                        self.server.send(create_msg("udp_info", self.username, "server", str(self.current_voice_call.udp_port)).encode())
+                        self.server.send(create_msg("udp_info", self.username, "server", str(self.current_voice_call.udp_port)).encode()) # Send my UDP info for relay
                         # if call_initiator not in self.chat_windows: self.open_chat_window(call_initiator)
-                        # self.chat_windows[call_initiator].add_message(f"Call accepted with {call_initiator}. Waiting for connection details...\n")
-                        print(f"Call accepted with {call_initiator}. Waiting for connection details...") # Log to console instead
+                        # self.chat_windows[call_initiator].add_message(f"Call accepted with {call_initiator}. Waiting for server relay setup...\n")
+                        print(f"Call accepted with {call_initiator}. Waiting for server relay setup...") # Log to console instead
                     else:
                         self.server.send(create_msg("call_reject", self.username, call_initiator, "rejected").encode())
                         # if call_initiator not in self.chat_windows: self.open_chat_window(call_initiator)
@@ -283,10 +283,10 @@ class Client:
                 elif msg_type == "call_accept": # Your previously initiated call was accepted
                     accepted_by = sender
                     if self.current_voice_call and self.current_voice_call.recipient_username == accepted_by:
-                        self.server.send(create_msg("udp_info", self.username, "server", str(self.current_voice_call.udp_port)).encode())
+                        self.server.send(create_msg("udp_info", self.username, "server", str(self.current_voice_call.udp_port)).encode()) # Send my UDP info for relay
                         # if accepted_by not in self.chat_windows: self.open_chat_window(accepted_by)
-                        # self.chat_windows[accepted_by].add_message(f"{accepted_by} accepted your call. Waiting for connection details...\n")
-                        print(f"{accepted_by} accepted your call. Waiting for connection details...") # Log to console instead
+                        # self.chat_windows[accepted_by].add_message(f"{accepted_by} accepted your call. Waiting for server relay setup...\n")
+                        print(f"{accepted_by} accepted your call. Waiting for server relay setup...") # Log to console instead
                     else:
                         # This case should ideally not happen if state is managed well
                         print(f"Received call_accept from {accepted_by}, but no matching pending call found or wrong recipient.")
@@ -309,27 +309,23 @@ class Client:
                         # self.chat_windows[busy_user].add_message(f"Could not call {busy_user}. User is busy.\n")
                         print(f"Could not call {busy_user}. User is busy.") # Log to console instead
                         self.end_current_call_ui(notify_server=False)
-                elif msg_type == "peer_udp_info":
-                    # content is "ip:port"
+                elif msg_type == "call_ready_relay": # Server confirms both UDPs received, ready for relay
+                    # Content might be empty or contain confirmation details, not strictly needed for now
                     if self.current_voice_call:
-                        peer_ip, peer_port = content.split(':')
-                        self.current_voice_call.set_peer_udp_address(peer_ip, int(peer_port))
-                        self.current_voice_call.start_call()
+                        self.current_voice_call.start_call() # Start sending/receiving audio (now to/from server)
                         peer_user = self.current_voice_call.recipient_username
-                        # if peer_user not in self.chat_windows: self.open_chat_window(peer_user)
-                        # self.chat_windows[peer_user].add_message(f"Voice call with {peer_user} connected!\n")
-                        # self.chat_windows[peer_user].add_end_call_button(self, peer_user)
-                        print(f"Voice call with {peer_user} connected!") # Log to console instead
-                        # Consider adding a visual indicator in the Voice Chat tab or main window for active call and end call button there
+                        print(f"Voice call with {peer_user} connected via server relay!")
                         if hasattr(self, 'voice_chat_box') and self.voice_chat_box.winfo_exists():
                             for i in range(self.voice_chat_box.size()):
                                 if peer_user in self.voice_chat_box.get(i):
                                     self.voice_chat_box.delete(i)
-                                    self.voice_chat_box.insert(i, f"{peer_user} (In Call)")
+                                    self.voice_chat_box.insert(i, f"{peer_user} (In Call - Relay)")
                                     break
-                            else: # If not found (e.g. receiver initiated)
-                                self.voice_chat_box.insert(END, f"{peer_user} (In Call)")
+                            else: # If not found
+                                self.voice_chat_box.insert(END, f"{peer_user} (In Call - Relay)")
                             if hasattr(self, 'end_call_button'): self.end_call_button.config(state="normal")
+                    else:
+                        print("Received call_ready_relay but no active call found.")
                 elif msg_type == "call_end":
                     ended_by = sender
                     reason = content # e.g., "Disconnected" or empty

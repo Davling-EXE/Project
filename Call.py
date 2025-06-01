@@ -29,27 +29,25 @@ class VoiceCall:
         self.stream = None # Input stream
         self.stream_out = None # Output stream
         self.is_active = False
-        self.peer_udp_address = None # (ip, port) of the other user, relayed by server
+        # self.peer_udp_address = None # (ip, port) of the other user, relayed by server - Now sends to server
+        self.server_voice_udp_address = (server_ip, 8821) # Server's dedicated voice UDP port (ensure this matches server config)
         self.send_thread = None
         self.receive_thread = None
 
     def start_call(self):
-        """Initiates the call or prepares to receive a call."""
-        self.is_active = True
-        # For caller: send call request to server
-        # For receiver: server will notify, then this method is called
-        # Both will then start sending/receiving UDP packets
-
-        # Inform server about UDP port for relaying to peer
-        # This message needs to be defined in Protocol.py and handled by Server.py
-        # Example: "udp_info|username|recipient_username|udp_port"
-        # self.client_socket.send(create_msg("udp_info", self.username, self.recipient_username, str(self.udp_port)).encode())
-
-        self.send_thread = threading.Thread(target=self._send_audio, daemon=True)
-        self.send_thread.start()
-        self.receive_thread = threading.Thread(target=self._receive_audio, daemon=True)
-        self.receive_thread.start()
-        print(f"Voice call initiated between {self.username} and {self.recipient_username} on UDP port {self.udp_port}")
+        """Prepares to send/receive audio once server confirms relay is ready."""
+        # This method is now called after client receives 'call_ready_relay' from server.
+        # The client_socket (TCP) is used for signaling, including sending its own UDP port to the server.
+        # The actual UDP audio streaming starts here.
+        if not self.is_active: # Ensure it's only started once
+            self.is_active = True
+            self.send_thread = threading.Thread(target=self._send_audio, daemon=True)
+            self.send_thread.start()
+            self.receive_thread = threading.Thread(target=self._receive_audio, daemon=True)
+            self.receive_thread.start()
+            print(f"Voice call active for {self.username} with {self.recipient_username}. UDP port {self.udp_port}. Sending to server relay.")
+        else:
+            print(f"Call already active for {self.username}.")
 
     def _send_audio(self):
         self.stream = self.audio.open(format=FORMAT, channels=CHANNELS,
@@ -60,8 +58,8 @@ class VoiceCall:
             try:
                 data = self.stream.read(CHUNK, exception_on_overflow=False)
                 encrypted_data = self.aes_cipher.encrypt(data)
-                if self.peer_udp_address: # Only send if peer address is known
-                    self.udp_socket.sendto(encrypted_data, self.peer_udp_address)
+                # Always send to the server's voice UDP port for relaying
+                self.udp_socket.sendto(encrypted_data, self.server_voice_udp_address)
             except Exception as e:
                 print(f"Error sending audio: {e}")
                 break
@@ -95,7 +93,11 @@ class VoiceCall:
 
     def set_peer_udp_address(self, ip, port):
         self.peer_udp_address = (ip, int(port))
-        print(f"Peer UDP address set to {self.peer_udp_address}")
+        # This method is no longer directly used by the client as the server manages relay.
+        # Kept for potential future direct P2P options or diagnostics, but current logic sends to server.
+        # self.peer_udp_address = (ip, int(port))
+        # print(f"Peer UDP address set to {self.peer_udp_address} - THIS IS DEPRECATED FOR SERVER RELAY")
+        pass # No longer sets peer_udp_address directly
 
     def end_call(self):
         print(f"Attempting to end call between {self.username} and {self.recipient_username}...")

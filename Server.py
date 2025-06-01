@@ -61,6 +61,7 @@ class Server:
         self.active_calls = {}           # {(caller, recipient): {'caller_udp': (ip, port), 'recipient_udp': (ip, port), 'aes_key': bytes}}
         self.user_in_call = {}           # {username: (peer_username, role ('caller'/'recipient'))} to quickly check if user is busy
         self.client_public_keys = {} # {username: public_key_str}
+        self.voice_udp_socket = None # UDP socket for voice relay
 
     def send_user_list(self):
         """
@@ -260,45 +261,39 @@ class Server:
                     # if caller in self.user_in_call and self.user_in_call[caller][1] == 'caller_pending':
                     #     del self.user_in_call[caller]
 
-                elif msg_type == "udp_info":
-                    # sender is the user sending their UDP port, recipient is 'server', content is UDP port
+                elif msg_type == "udp_info": # Client informs server of its UDP endpoint for voice
                     user_udp_port = content
-                    peer_username = None
-                    user_role = None
-                    call_key_tuple = None
+                    client_ip = client.getpeername()[0]
+                    user_udp_address = (client_ip, int(user_udp_port))
+                    print(f"Received UDP info from {sender}: {user_udp_address}")
 
                     if sender in self.user_in_call:
                         peer_username, user_role = self.user_in_call[sender]
                         call_key_tuple = tuple(sorted((sender, peer_username)))
 
-                    if call_key_tuple and call_key_tuple in self.active_calls and peer_username in self.clients:
-                        client_ip = client.getpeername()[0]
-                        user_udp_address = (client_ip, int(user_udp_port))
-                        print(f"Received UDP info from {sender} ({user_role}): {user_udp_address}")
-
-                        current_call_info = self.active_calls[call_key_tuple]
-                        if user_role == 'caller':
-                            current_call_info['caller_udp'] = user_udp_address
-                        elif user_role == 'recipient':
-                            current_call_info['recipient_udp'] = user_udp_address
-                        else: # Should not happen if user_in_call is managed correctly
-                            print(f"Error: {sender} has unknown role {user_role} in call with {peer_username}")
-                            continue
-
-                        # Check if both UDP infos are received
-                        if current_call_info['caller_udp'] and current_call_info['recipient_udp']:
-                            caller_name = current_call_info['caller']
-                            recipient_name = current_call_info['recipient']
-
-                            caller_udp_addr_str = f"{current_call_info['recipient_udp'][0]}:{current_call_info['recipient_udp'][1]}"
-                            recipient_udp_addr_str = f"{current_call_info['caller_udp'][0]}:{current_call_info['caller_udp'][1]}"
-
-                            # Send peer UDP info to both clients
-                            self.clients[caller_name].send(create_msg("peer_udp_info", "server", caller_name, caller_udp_addr_str).encode())
-                            self.clients[recipient_name].send(create_msg("peer_udp_info", "server", recipient_name, recipient_udp_addr_str).encode())
-                            print(f"Relayed UDP info for call between {caller_name} and {recipient_name}")
+                        if call_key_tuple in self.active_calls:
+                            current_call_info = self.active_calls[call_key_tuple]
+                            if user_role == 'caller':
+                                current_call_info['caller_udp'] = user_udp_address
+                            elif user_role == 'recipient':
+                                current_call_info['recipient_udp'] = user_udp_address
+                            
+                            # If server now has both UDP addresses, inform clients they can start sending voice to server
+                            if current_call_info.get('caller_udp') and current_call_info.get('recipient_udp'):
+                                caller_name = current_call_info['caller']
+                                recipient_name = current_call_info['recipient']
+                                
+                                # Inform both clients that the relay is ready
+                                # Clients will send voice data to the server's known UDP voice port
+                                if caller_name in self.clients:
+                                    self.clients[caller_name].send(create_msg("call_ready_relay", "server", caller_name, f"{recipient_name}").encode())
+                                if recipient_name in self.clients:
+                                    self.clients[recipient_name].send(create_msg("call_ready_relay", "server", recipient_name, f"{caller_name}").encode())
+                                print(f"Call relay ready for {caller_name} and {recipient_name}. They will send to server UDP port {VOICE_PORT}")
+                        else:
+                            print(f"UDP info from {sender} but call key {call_key_tuple} not in active_calls.")
                     else:
-                        print(f"UDP info from {sender} but no active call or peer not found.")
+                        print(f"UDP info from {sender} but user not in an active call setup.")
 
                 elif msg_type == "call_end":
                     # sender is the one ending the call, recipient is the other party
@@ -418,11 +413,58 @@ class Server:
                     pass # Client might already be closed
                 client.close()
 
+    def voice_relay_thread(self):
+        self.voice_udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            self.voice_udp_socket.bind((IP, VOICE_PORT))
+            print(f"Voice relay server started on UDP {IP}:{VOICE_PORT}")
+        except socket.error as e:
+            print(f"Failed to bind voice UDP socket on {IP}:{VOICE_PORT}: {e}")
+            return
+
+        while True:
+            try:
+                data, addr = self.voice_udp_socket.recvfrom(MAX_PACKET * 4) # Further increased buffer for encrypted data
+                # Find which call this packet belongs to and relay it
+                # This requires knowing which client (addr) is associated with which peer
+                source_user = None
+                target_user_udp_addr = None
+
+                # Iterate through active calls to find the sender and determine the recipient
+                for call_key, call_info in list(self.active_calls.items()): # Iterate over a copy
+                    caller_udp = call_info.get('caller_udp')
+                    recipient_udp = call_info.get('recipient_udp')
+
+                    if caller_udp == addr:
+                        source_user = call_info['caller']
+                        target_user_udp_addr = recipient_udp
+                        break
+                    elif recipient_udp == addr:
+                        source_user = call_info['recipient']
+                        target_user_udp_addr = caller_udp
+                        break
+                
+                if source_user and target_user_udp_addr:
+                    # print(f"Relaying voice from {source_user} ({addr}) to {target_user_udp_addr}")
+                    self.voice_udp_socket.sendto(data, target_user_udp_addr)
+                # else:
+                    # print(f"Received UDP packet from unknown source {addr} or no active call found for relay.")
+
+            except socket.error as e:
+                print(f"Error in voice relay thread: {e}")
+                # Consider if socket needs to be re-initialized or if thread should exit
+            except Exception as e:
+                print(f"Unexpected error in voice relay thread: {e}")
+
     def main(self):
         self.server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.server.bind((IP, PORT))
         self.server.listen()
-        print(f"Server started on {IP}:{PORT}")
+        print(f"Signaling server started on TCP {IP}:{PORT}")
+
+        # Start the voice relay thread
+        relay_thread = threading.Thread(target=self.voice_relay_thread, daemon=True)
+        relay_thread.start()
 
         self.receive()
 
