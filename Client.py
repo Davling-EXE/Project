@@ -43,7 +43,7 @@ MAX_PACKAGE = 1024      # Maximum packet size for network communication
 
 # Initialize main Tkinter root window
 ROOT = Tk()
-ROOT.title("Chat Login")
+ROOT.title("Zephyr Chat Login")
 
 
 class Client:
@@ -627,7 +627,7 @@ class Client:
         :return:
         """
         self.main_window = Toplevel()
-        self.main_window.title(f"Contacts - {self.username}")
+        self.main_window.title(f"Zephyr Contacts - {self.username}")
         self.main_window.geometry(self.get_window_position(350, 500))
         self.main_window.minsize(300, 400)
 
